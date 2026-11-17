@@ -8,17 +8,63 @@
  * Usage: node scripts/e2e.mjs [--headed]
  */
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  cpSync,
+  createReadStream,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { firefox } from 'playwright';
-import { preview } from 'vite';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const workDir = path.join(tmpdir(), 'autoditag-e2e');
 const fixtureDir = path.join(workDir, 'Tanzmusik');
 const outputDir = path.join(workDir, 'out');
+const siteDir = path.join(workDir, 'site');
+// the app is served from a sub path, exactly like on GitHub Pages
+const appDir = path.join(siteDir, 'repo');
+
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.map': 'application/json',
+};
+
+/** A minimal static file server. */
+function serve(directory, port) {
+  const server = createServer((request, response) => {
+    const requestPath = decodeURIComponent((request.url ?? '/').split('?')[0]);
+    let filePath = path.join(directory, requestPath);
+    if (!filePath.startsWith(directory)) {
+      response.writeHead(403).end();
+      return;
+    }
+    if (existsSync(filePath) && statSync(filePath).isDirectory()) {
+      filePath = path.join(filePath, 'index.html');
+    }
+    if (!existsSync(filePath)) {
+      response.writeHead(404).end('not found');
+      return;
+    }
+    response.writeHead(200, {
+      'Content-Type': MIME[path.extname(filePath)] ?? 'application/octet-stream',
+    });
+    createReadStream(filePath).pipe(response);
+  });
+  return new Promise((resolve) => {
+    server.listen(port, '127.0.0.1', () => resolve(server));
+  });
+}
 
 const DESCRIPTOR = [
   '01_Voices of Spring; André Rieu -- Wiener Walzer',
@@ -76,12 +122,17 @@ function createFixtures() {
 async function main() {
   if (!createFixtures()) return;
 
-  const server = await preview({
-    root,
-    preview: { port: 4173, strictPort: true, open: false },
-  });
-  const url = server.resolvedUrls?.local?.[0] ?? 'http://localhost:4173/';
-  log(`preview server: ${url}`);
+  // publish the build like GitHub Pages would: a sub directory of the server
+  rmSync(siteDir, { recursive: true, force: true });
+  mkdirSync(appDir, { recursive: true });
+  const distDir = path.join(root, 'dist');
+  for (const entry of readdirSync(distDir)) {
+    cpSync(path.join(distDir, entry), path.join(appDir, entry), { recursive: true });
+  }
+
+  const server = await serve(siteDir, 4173);
+  const url = 'http://127.0.0.1:4173/repo/';
+  log(`static server: ${url}`);
 
   const browser = await firefox.launch({ headless: !process.argv.includes('--headed') });
   const context = await browser.newContext({ acceptDownloads: true });
@@ -200,7 +251,7 @@ async function main() {
     if (consoleErrors.length > 0) log(`console errors:\n${consoleErrors.join('\n')}`);
   } finally {
     await browser.close();
-    await server.close();
+    server.close();
   }
 
   if (process.exitCode) log('E2E FAILED');

@@ -58,7 +58,13 @@ npm test           # unit tests (vitest)
 npm run typecheck  # typescript
 npm run build      # production build into dist/
 npm run preview    # serve the production build
+npm run e2e        # end to end test in a real Firefox (needs: npx playwright install firefox)
 ```
+
+The end to end test (`scripts/e2e.mjs`) serves the production build from a sub directory — like
+GitHub Pages does — picks a folder of mp3 files in Firefox, runs the job, downloads the ZIP and
+checks the result. `scripts/verify_output.py` reads the downloaded files back with mutagen, the
+same library the original Python tool uses.
 
 ### Project layout
 
