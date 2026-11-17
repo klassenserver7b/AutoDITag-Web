@@ -50,6 +50,10 @@ The credentials are only sent to Spotify. They are kept in the browser's local s
 you tick "remember in this browser" — otherwise they are discarded when you reload the page.
 Since a client secret cannot be hidden in a browser app, every user should use their own app.
 
+> On GitHub Pages every page of a user shares the same origin (`<user>.github.io`), and the
+> browser stores local storage unencrypted on disk. If that matters to you, do not tick
+> "remember in this browser" — the secret then only lives in the open tab.
+
 If Spotify cannot find a track, the file is still tagged — it just gets no cover art.
 
 ## Development
