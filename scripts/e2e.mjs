@@ -140,17 +140,24 @@ function createFixtures() {
 async function main() {
   if (!createFixtures()) return;
 
-  // publish the build like GitHub Pages would: a sub directory of the server
-  rmSync(siteDir, { recursive: true, force: true });
-  mkdirSync(appDir, { recursive: true });
-  const distDir = path.join(root, 'dist');
-  for (const entry of readdirSync(distDir)) {
-    cpSync(path.join(distDir, entry), path.join(appDir, entry), { recursive: true });
-  }
+  // `--url https://…` tests a deployed instance instead of the local build
+  const urlIndex = process.argv.indexOf('--url');
+  const externalUrl = urlIndex >= 0 ? process.argv[urlIndex + 1] : null;
 
-  const server = await serve(siteDir, 4173);
-  const url = 'http://127.0.0.1:4173/repo/';
-  log(`static server: ${url}`);
+  let server = null;
+  let url = externalUrl;
+  if (!url) {
+    // publish the build like GitHub Pages would: a sub directory of the server
+    rmSync(siteDir, { recursive: true, force: true });
+    mkdirSync(appDir, { recursive: true });
+    const distDir = path.join(root, 'dist');
+    for (const entry of readdirSync(distDir)) {
+      cpSync(path.join(distDir, entry), path.join(appDir, entry), { recursive: true });
+    }
+    server = await serve(siteDir, 4173);
+    url = 'http://127.0.0.1:4173/repo/';
+  }
+  log(`testing: ${url}`);
 
   const browser = await firefox.launch({ headless: !process.argv.includes('--headed') });
   const context = await browser.newContext({ acceptDownloads: true });
@@ -427,7 +434,7 @@ async function main() {
   await checkLayout(browser, url);
 
   await browser.close();
-  server.close();
+  server?.close();
 
   if (process.exitCode) log('E2E FAILED');
   else log('E2E PASSED');
