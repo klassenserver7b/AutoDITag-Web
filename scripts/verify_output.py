@@ -44,6 +44,39 @@ EXPECTED = {
 }
 
 
+def verify_cover_archive(archive: Path, failures: list) -> None:
+    """The archive of the spotify run has to contain the embedded cover art."""
+    if not archive.exists():
+        print(f"\n(skip: {archive} does not exist)")
+        return
+    print(f"\n--- cover archive {archive.name} ---")
+    with zipfile.ZipFile(archive) as zf:
+        names = [n for n in zf.namelist() if n.endswith(".mp3")]
+        if len(names) != 3:
+            failures.append(f"expected 3 mp3 files in the cover archive, found {len(names)}")
+        for name in names:
+            data = zf.read(name)
+            temp = Path("/tmp/autoditag-e2e") / Path(name).name
+            temp.parent.mkdir(parents=True, exist_ok=True)
+            temp.write_bytes(data)
+            tags = ID3(temp)
+            apic = None
+            for key in tags.keys():
+                if key.startswith("APIC"):
+                    apic = tags[key]
+                    break
+            if apic is None:
+                failures.append(f"{name}: no APIC frame (the cover art was not embedded)")
+                continue
+            print(f"  {Path(name).name}: APIC mime={apic.mime} type={apic.type} bytes={len(apic.data)}")
+            if apic.mime != "image/jpeg":
+                failures.append(f"{name}: unexpected cover mime type {apic.mime}")
+            if apic.type != 3:
+                failures.append(f"{name}: the cover is not marked as the front cover")
+            if len(apic.data) < 100:
+                failures.append(f"{name}: the cover data is suspiciously small")
+
+
 def main() -> int:
     archive = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("/tmp/autoditag-e2e/out/playlist.zip")
     if not archive.exists():
@@ -100,6 +133,8 @@ def main() -> int:
             print(f"  duration: {audio.info.length:.2f}s, bitrate: {audio.info.bitrate // 1000}kbps")
             if not 2.5 < audio.info.length < 3.5:
                 failures.append(f"{name}: unexpected duration {audio.info.length}")
+
+    verify_cover_archive(archive.parent / "cover.zip", failures)
 
     if failures:
         print("\nFAILURES:")

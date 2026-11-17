@@ -13,6 +13,7 @@ import {
   createReadStream,
   existsSync,
   mkdirSync,
+  readFileSync,
   readdirSync,
   rmSync,
   statSync,
@@ -114,6 +115,19 @@ function createFixtures() {
   );
   if (nested.status !== 0) {
     fail(`ffmpeg could not create the nested test file: ${nested.stderr}`);
+    return false;
+  }
+
+  // a small jpeg for the fake spotify cover
+  const cover = path.join(workDir, 'cover.jpg');
+  const jpeg = spawnSync(
+    'ffmpeg',
+    ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=blue:size=64x64:duration=1',
+      '-frames:v', '1', '-y', cover],
+    { encoding: 'utf8' },
+  );
+  if (jpeg.status !== 0) {
+    fail(`ffmpeg could not create the cover image: ${jpeg.stderr}`);
     return false;
   }
   return true;
@@ -218,13 +232,8 @@ async function main() {
     );
     log('drag & drop: the dropped file was picked up');
 
-    if (consoleErrors.length > 0) {
-      fail(`the browser reported errors:\n${consoleErrors.join('\n')}`);
-    } else {
-      log('no console errors');
-    }
-
-    // 7. the Spotify endpoints have to be reachable from the browser (CORS)
+    // 9. the spotify endpoints have to be reachable from the browser (CORS)
+    //    (checked before the api is mocked below)
     const spotify = await page.evaluate(async () => {
       try {
         const response = await fetch('https://accounts.spotify.com/api/token', {
@@ -245,6 +254,84 @@ async function main() {
       }
     } else {
       fail(`the spotify token endpoint is not reachable from the browser: ${spotify.error}`);
+    }
+
+    // 10. the spotify flow with a mocked api: the cover has to be embedded
+    const coverBytes = readFileSync(path.join(workDir, 'cover.jpg'));
+    const corsHeaders = {
+      'access-control-allow-origin': '*',
+      'access-control-allow-headers': '*',
+      'access-control-allow-methods': '*',
+    };
+    await page.route('https://accounts.spotify.com/api/token', async (route) => {
+      if (route.request().method() === 'OPTIONS') {
+        await route.fulfill({ status: 204, headers: corsHeaders });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        headers: { ...corsHeaders, 'content-type': 'application/json' },
+        body: JSON.stringify({ access_token: 'fake-token', token_type: 'Bearer', expires_in: 3600 }),
+      });
+    });
+    await page.route('https://api.spotify.com/v1/search*', async (route) => {
+      if (route.request().method() === 'OPTIONS') {
+        await route.fulfill({ status: 204, headers: corsHeaders });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        headers: { ...corsHeaders, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          tracks: {
+            items: [
+              {
+                id: 'fake-id',
+                name: 'Voices of Spring',
+                artists: [{ name: 'André Rieu' }],
+                album: {
+                  name: 'Fake Album',
+                  images: [{ url: 'https://i.scdn.co/fake-cover.jpg', height: 640, width: 640 }],
+                },
+              },
+            ],
+          },
+        }),
+      });
+    });
+    await page.route('https://i.scdn.co/fake-cover.jpg', async (route) => {
+      await route.fulfill({
+        status: 200,
+        headers: { ...corsHeaders, 'content-type': 'image/jpeg' },
+        body: coverBytes,
+      });
+    });
+
+    await page.check('#spotify-enabled');
+    await page.fill('#spotify-client-id', 'fake-id');
+    await page.fill('#spotify-client-secret', 'fake-secret');
+    await page.setInputFiles('#music-input', fixtureDir);
+    await page.fill('#descriptor-text', DESCRIPTOR);
+    await page.fill('#playlist-name', 'E2E Cover');
+    await page.click('#run-button');
+    await page.waitForSelector('body.state-done', { timeout: 120_000 });
+    const coverStatus = await page.locator('#status').innerText();
+    log(`spotify status: ${coverStatus}`);
+    if (!coverStatus.includes('3 covers found')) {
+      fail(`the cover art was not found: ${coverStatus}`);
+    }
+
+    const coverDownload = page.waitForEvent('download', { timeout: 60_000 });
+    await page.click('#download-button');
+    const coverZip = await coverDownload;
+    const coverZipPath = path.join(outputDir, 'cover.zip');
+    await coverZip.saveAs(coverZipPath);
+    log(`downloaded: ${coverZip.suggestedFilename()} -> ${coverZipPath}`);
+
+    if (consoleErrors.length > 0) {
+      fail(`the browser reported errors:\n${consoleErrors.join('\n')}`);
+    } else {
+      log('no console errors');
     }
   } catch (error) {
     fail(`exception: ${error.message}`);
