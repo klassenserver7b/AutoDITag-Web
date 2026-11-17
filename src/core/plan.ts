@@ -70,6 +70,11 @@ export function buildPlan(
       trackWarnings.push(
         `Target file already exists, skipping: ${targetName} (already used by line ${previous.lineNumber})`,
       );
+      // the file must not end up in the playlist twice
+      if (source) {
+        used.delete(source);
+        source = undefined;
+      }
     } else {
       takenTargets.set(targetName, entry);
     }

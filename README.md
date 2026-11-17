@@ -125,7 +125,7 @@ The port keeps the behaviour of `auto_di_tag.py` but fixes a few rough edges:
 | Existing ID3v2 frames of a file | kept, except `COMM` and `TXXX` | kept the same way |
 | ID3v1 tag at the end of the file | updated from the ID3v2 frames when it exists, never created | removed, it would contradict the new tags |
 | File without an ID3v2 tag | skipped, mutagen refuses to read it | tagged anyway |
-| File with a broken ID3v2 tag | skipped, mutagen refuses to read it | skipped as well, the audio is never cut off |
+| File with a broken ID3v2 tag | skipped, mutagen refuses to read it | the music is searched and kept, the file is only skipped when it has no audio at all |
 | Frames of an ID3v2.2 tag | mutagen upgrades them (`TT2` becomes `TIT2`) | not read, only the frames of the tool are written |
 | Files in sub folders | ignored (`os.listdir` only reads the top level) | ignored as well, but they are listed as a warning |
 | File extension | only `.mp3` (case sensitive) | `.mp3` and `.MP3` are both used |

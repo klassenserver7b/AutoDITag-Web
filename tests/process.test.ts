@@ -179,6 +179,31 @@ describe('processPlaylist', () => {
     expect(Object.keys(archive).filter((name) => name.endsWith('.mp3'))).toHaveLength(0);
   });
 
+  it('processes a file that has something between the tag and the music', async () => {
+    const { entries } = parseDescriptor('01_Waltz; Artist -- Dance');
+    const audio = makeMp3({ frames: 50 });
+    // a Lyrics3v2 block behind the tag
+    const junk = new TextEncoder().encode('LYRICSBEGININD00000000LYRICS200');
+    const header = new Uint8Array([0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04]);
+    const withJunk = concatBytes(header, junk);
+    const tagged = concatBytes(withJunk, audio);
+
+    const result = await processPlaylist({
+      playlistName: 'Schulball',
+      entries,
+      files: [picked('01-Song.mp3', tagged)],
+      musicFolderName: 'Tanzmusik',
+      spotify: null,
+    });
+
+    // the file is processed, the music is complete
+    expect(result.tracks).toHaveLength(1);
+    const archive = await archiveEntries(result.archive);
+    const data = archive['Tanzmusik/01_Waltz; Artist -- Dance.mp3'] as Uint8Array;
+    expect(readId3v2(data)?.text.TIT2).toBe('Waltz');
+    expect(data.length).toBeGreaterThan(audio.length);
+  });
+
   it('can be cancelled', async () => {
     const { entries } = parseDescriptor('01_Waltz; Artist -- Dance');
     const controller = new AbortController();

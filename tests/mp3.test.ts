@@ -163,10 +163,41 @@ describe('stripTags', () => {
     const tagged = concatBytes([id3v22TagBrokenSize(body), audio]);
 
     const result = stripTags(tagged);
-    // the tag cannot be located, but the audio must not be lost
-    expect(result.tagReadable).toBe(false);
-    expect(result.audio.length).toBe(tagged.length);
+    // the size cannot be trusted, but the audio is found and kept completely
+    expect(result.tagReadable).toBe(true);
+    expect([...result.audio]).toEqual([...audio]);
     expect(readMp3Info(tagged)?.durationSeconds).toBeGreaterThan(0);
+  });
+
+  it('keeps the audio when something is between the tag and the music', () => {
+    const audio = makeMp3({ frames: 10 });
+    // a Lyrics3v2 block behind the tag, like some old files have
+    const junk = new TextEncoder().encode('LYRICSBEGININD00000000LYRICS200');
+    const tagged = concatBytes([id3v24Header([0x00, 0x00, 0x00, 0x04]), junk, audio]);
+
+    const result = stripTags(tagged);
+    // the junk is removed, the music is complete
+    expect(result.tagReadable).toBe(true);
+    expect([...result.audio]).toEqual([...audio]);
+    expect(readMp3Info(tagged)?.durationSeconds).toBeGreaterThan(0);
+  });
+
+  it('reads a tag with the id3v2.4 footer flag', () => {
+    const audio = makeMp3({ frames: 10 });
+    // the size of a tag with a footer includes the footer
+    const body = new Uint8Array([0x54, 0x49, 0x54, 0x32, 0x00, 0x00, 0x00, 0x04, 1, 2, 3, 4]);
+    const footer = new Uint8Array(10);
+    const tagged = concatBytes([
+      id3v24Header([0x00, 0x00, 0x00, (body.length + footer.length) & 0x7f], 0x10),
+      body,
+      footer,
+      audio,
+    ]);
+
+    const result = stripTags(tagged);
+    expect(result.tagReadable).toBe(true);
+    expect(result.id3v2Size).toBe(10 + body.length + footer.length);
+    expect([...result.audio]).toEqual([...audio]);
   });
 
   it('keeps a file whose first bytes are not a tag untouched', () => {

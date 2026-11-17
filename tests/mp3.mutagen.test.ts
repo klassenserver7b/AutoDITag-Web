@@ -22,6 +22,8 @@ interface FixtureReference {
   bitrateBps: number;
   sampleRate: number;
   channels: number;
+  mpegVersion: number;
+  layer: number;
 }
 
 /** Why: a missing reference must fail the suite, not silently skip it. */
@@ -46,6 +48,8 @@ describe('mp3 parser vs mutagen (repository fixtures)', () => {
       expect(Math.abs((info?.bitrateKbps ?? 0) * 1000 - entry.bitrateBps)).toBeLessThan(1000);
       expect(info?.sampleRate).toBe(entry.sampleRate);
       expect(info?.channels).toBe(entry.channels);
+      expect(info?.mpegVersion).toBe(entry.mpegVersion);
+      expect(info?.layer).toBe(entry.layer);
     });
   }
 });

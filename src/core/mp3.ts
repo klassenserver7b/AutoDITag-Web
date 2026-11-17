@@ -14,6 +14,10 @@ export interface Mp3Info {
   readonly bitrateKbps: number;
   readonly sampleRate: number;
   readonly channels: number;
+  /** MPEG version: 1, 2 or 2.5. */
+  readonly mpegVersion: number;
+  /** MPEG layer: 1, 2 or 3. */
+  readonly layer: number;
   /** `true` when the file carries a Xing/VBRI header (variable bitrate). */
   readonly vbr: boolean;
   /** Number of frames when it is known from a Xing/VBRI header. */
@@ -96,7 +100,6 @@ export interface StrippedAudio {
 
 /** Header size of an ID3v2 tag (all versions). */
 const ID3V2_HEADER_SIZE = 10;
-const ID3_FOOTER_SIZE = 10;
 
 /**
  * Size of the ID3v2 tag at the start of `data`, or `null` when the header is
@@ -117,11 +120,10 @@ function id3v2TagSize(data: Uint8Array): number | null {
 
   // All versions use a ten byte header with a synchsafe size - that is how
   // mutagen and exiftool read an ID3v2.2 tag as well (the size of such a tag
-  // is a 21 bit value, the fourth byte of the field is zero).
-  const flags = data[5] ?? 0;
+  // is a 21 bit value, the fourth byte of the field is zero). The footer of
+  // an ID3v2.4 tag is part of that size, it must not be added again.
   const size = readSyncSafe(data, 6);
-  const footerSize = version >= 3 && (flags & 0x10) !== 0 ? ID3_FOOTER_SIZE : 0;
-  const total = ID3V2_HEADER_SIZE + size + footerSize;
+  const total = ID3V2_HEADER_SIZE + size;
   return total <= data.length ? total : null;
 }
 
@@ -158,9 +160,19 @@ export function stripTags(data: Uint8Array): StrippedAudio {
       audio = candidate;
       id3v2Size = tagSize;
     } else {
-      // the size does not point to the audio - the tag is broken, the file is
-      // left alone and reported as unreadable
-      tagReadable = false;
+      // The size does not point at the audio. Something is between the tag
+      // and the music: a Lyrics3v2 block for example, or a size that is a
+      // few bytes off. mutagen looks for the first frame as well, so the same
+      // is done here - the audio stays complete, only the tag and the junk in
+      // front of it are removed.
+      const frame = findFirstFrame(data);
+      if (frame && frame.offset >= ID3V2_HEADER_SIZE) {
+        audio = data.subarray(frame.offset);
+        id3v2Size = frame.offset;
+      } else {
+        // no audio at all - the file is reported as unreadable
+        tagReadable = false;
+      }
     }
   }
 
@@ -238,9 +250,9 @@ function parseFrameHeader(data: Uint8Array, offset: number): FrameHeader | null 
   };
 }
 
-function findFirstFrame(data: Uint8Array): FrameHeader | null {
-  const limit = Math.min(data.length - 4, 256 * 1024);
-  for (let offset = 0; offset <= limit; offset += 1) {
+function findFirstFrame(data: Uint8Array, from = 0): FrameHeader | null {
+  const limit = Math.min(data.length - 4, from + 256 * 1024);
+  for (let offset = from; offset <= limit; offset += 1) {
     const header = parseFrameHeader(data, offset);
     if (!header) continue;
     // Guard against false positives: the next frame should start right after
@@ -348,6 +360,8 @@ export function readMp3Info(data: Uint8Array): Mp3Info | null {
     bitrateKbps,
     sampleRate: header.sampleRate,
     channels: header.channelMode === 3 ? 1 : 2,
+    mpegVersion: header.version,
+    layer: header.layer,
     vbr,
     frameCount,
   };

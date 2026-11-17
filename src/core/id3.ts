@@ -25,6 +25,11 @@ export interface Id3Tag {
   readonly text: Readonly<Record<string, string>>;
   /** The embedded cover art, if any. */
   readonly picture: CoverArt | null;
+  /**
+   * `true` when the tag uses the unsynchronisation scheme. The frames of such
+   * a tag cannot be copied into a new tag unchanged.
+   */
+  readonly unsynchronised: boolean;
 }
 
 const ENCODING_UTF16 = 1;
@@ -126,6 +131,7 @@ export function buildId3v2(payload: TagPayload, options: BuildId3Options = {}): 
 
   // keep the frames of the original file
   for (const frame of options.existing?.frames ?? []) {
+    if (options.existing?.unsynchronised) break; // the frames cannot be copied
     if (DELETED_FRAMES.has(frame.id)) continue;
     if (frame.id === 'APIC') {
       // an existing cover is only kept when no new one is fetched
@@ -233,6 +239,8 @@ export function readId3v2(data: Uint8Array): Id3Tag | null {
   if (data[0] !== 0x49 || data[1] !== 0x44 || data[2] !== 0x33) return null;
 
   const version = data[3] ?? 4;
+  const headerFlags = data[5] ?? 0;
+  const unsynchronised = (headerFlags & 0x80) !== 0;
   const size =
     ((data[6] ?? 0) & 0x7f) * 0x200000 +
     ((data[7] ?? 0) & 0x7f) * 0x4000 +
@@ -290,5 +298,5 @@ export function readId3v2(data: Uint8Array): Id3Tag | null {
     cursor = dataEnd + frameHeaderSize;
   }
 
-  return { version, frames, text, picture };
+  return { version, frames, text, picture, unsynchronised };
 }

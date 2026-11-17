@@ -86,4 +86,19 @@ describe('buildPlan', () => {
     expect(plan.tracks[1]?.status).toBe('missing');
     expect(plan.unmatched).toHaveLength(0);
   });
+
+  it('never writes a track twice when two entries want the same name', () => {
+    // two entries that would end up with the same file name
+    const entries = [
+      { lineNumber: 1, raw: '01_Song; A -- B', trackNumber: '01', title: 'Song', artist: 'A', dance: 'B' },
+      { lineNumber: 2, raw: '01_Song; A -- B', trackNumber: '01', title: 'Song', artist: 'A', dance: 'B' },
+    ];
+    const plan = buildPlan(entries, [picked('01-Song.mp3'), picked('02-Song.mp3')]);
+
+    expect(plan.tracks[0]?.status).toBe('ok');
+    expect(plan.tracks[1]?.status).toBe('duplicate');
+    expect(plan.tracks[1]?.warnings.join(' ')).toContain('Target file already exists');
+    // the file must not end up in the playlist twice
+    expect(plan.tracks[1]?.source).toBeNull();
+  });
 });

@@ -154,6 +154,8 @@ export async function processPlaylist(options: ProcessOptions): Promise<Processi
   archive.add(`${archiveName}.m3u8`, encoder.encode(m3u8));
 
   const tracks: ProcessedTrack[] = [];
+  // tracks that are not part of the result: no file, or an unreadable file
+  let skipped = 0;
   for (const item of measured) {
     throwIfAborted(signal);
     const entry = item.track.entry;
@@ -181,6 +183,7 @@ export async function processPlaylist(options: ProcessOptions): Promise<Processi
     if (!stripped.tagReadable) {
       // the file carries a tag that cannot be located - the python tool skips
       // such a file as well, writing a broken result would be worse
+      skipped += 1;
       warnings.push(
         `Track ${String(entry.lineNumber).padStart(2, '0')} (${entry.raw}) was skipped: the ID3 tag of '${item.track.source!.name}' is broken.`,
       );
@@ -207,7 +210,6 @@ export async function processPlaylist(options: ProcessOptions): Promise<Processi
   const blob = await archive.finish();
 
   // tracks without a source file
-  let skipped = 0;
   for (const track of plan.tracks) {
     if (track.source === null) {
       skipped += 1;
