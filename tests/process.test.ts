@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { unzipSync } from 'fflate';
 import { parseDescriptor } from '../src/core/descriptor';
 import { processPlaylist } from '../src/core/process';
 import { readId3v2 } from '../src/core/id3';
@@ -11,6 +12,11 @@ function picked(name: string, bytes: Uint8Array): PickedFile {
     relativePath: `Tanzmusik/${name}`,
     file: new File([bytes as BlobPart], name, { type: 'audio/mpeg' }),
   };
+}
+
+async function archiveEntries(blob: Blob): Promise<Record<string, Uint8Array>> {
+  const buffer = await blob.arrayBuffer();
+  return unzipSync(new Uint8Array(buffer));
 }
 
 describe('processPlaylist', () => {
@@ -33,15 +39,31 @@ describe('processPlaylist', () => {
 
     expect(result.tracks).toHaveLength(2);
     expect(result.tracks[0]?.targetName).toBe('01_Waltz; Artist -- Dance.mp3');
-    expect(result.tracks[0]?.durationSeconds).toBeCloseTo((8 * makeMp3({ frames: 100 }).length) / 128000, 6);
+    expect(result.tracks[0]?.durationSeconds).toBeCloseTo(
+      (8 * makeMp3({ frames: 100 }).length) / 128000,
+      6,
+    );
 
-    // The output starts with an id3 tag and contains the audio frames.
-    const data = result.tracks[0]?.data ?? new Uint8Array();
-    expect(data[0]).toBe(0x49);
-    expect(data[1]).toBe(0x44);
-    expect(data[2]).toBe(0x33);
+    expect(result.m3u).toContain('#EXTM3U');
+    expect(result.m3u).toContain('#EXTINF:2,Artist - Waltz');
+    expect(result.m3u).toContain('Tanzmusik/01_Waltz%3B%20Artist%20--%20Dance.mp3');
+    expect(result.m3u8).toBe(result.m3u);
 
-    const tag = readId3v2(data);
+    // the archive contains the playlist files and the tagged mp3 files
+    const archive = await archiveEntries(result.archive);
+    expect(Object.keys(archive).sort()).toEqual([
+      'Schulball.m3u',
+      'Schulball.m3u8',
+      'Tanzmusik/01_Waltz; Artist -- Dance.mp3',
+      'Tanzmusik/02_Tango; Artist2 -- Dance2.mp3',
+    ]);
+
+    const tagged = archive['Tanzmusik/01_Waltz; Artist -- Dance.mp3'] as Uint8Array;
+    expect(tagged[0]).toBe(0x49);
+    expect(tagged[1]).toBe(0x44);
+    expect(tagged[2]).toBe(0x33);
+
+    const tag = readId3v2(tagged);
     expect(tag?.text.TIT2).toBe('Waltz');
     expect(tag?.text.TPE1).toBe('Artist');
     expect(tag?.text.TALB).toBe('Schulball');
@@ -52,10 +74,8 @@ describe('processPlaylist', () => {
     expect(tag?.text.COMM).toBe('Dance');
     expect(tag?.picture).toBeNull();
 
-    expect(result.m3u).toContain('#EXTM3U');
-    expect(result.m3u).toContain('#EXTINF:2,Artist - Waltz');
-    expect(result.m3u).toContain('Tanzmusik/01_Waltz%3B%20Artist%20--%20Dance.mp3');
-    expect(result.m3u8).toBe(result.m3u);
+    // the audio data is still there
+    expect(tagged.length).toBeGreaterThan(makeMp3({ frames: 100 }).length);
   });
 
   it('reports tracks without a matching file', async () => {
@@ -73,6 +93,9 @@ describe('processPlaylist', () => {
     expect(result.tracks).toHaveLength(1);
     expect(result.warnings.join(' ')).toContain('was skipped: no matching file found');
     expect(result.m3u).not.toContain('Tango');
+
+    const archive = await archiveEntries(result.archive);
+    expect(Object.keys(archive)).toHaveLength(3);
   });
 
   it('replaces an existing id3 tag instead of stacking tags', async () => {
@@ -94,7 +117,8 @@ describe('processPlaylist', () => {
       spotify: null,
     });
 
-    const data = result.tracks[0]?.data ?? new Uint8Array();
+    const archive = await archiveEntries(result.archive);
+    const data = archive['Tanzmusik/01_Waltz; Artist -- Dance.mp3'] as Uint8Array;
     // only one id3 header at the beginning
     expect(data[0]).toBe(0x49);
     expect(data[1]).toBe(0x44);

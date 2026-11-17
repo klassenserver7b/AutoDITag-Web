@@ -12,6 +12,7 @@ import { buildM3U } from './playlist';
 import { buildPlan } from './plan';
 import { safeFileName } from './filename';
 import type { SpotifyClient } from './spotify';
+import { createZipStream } from './zip';
 
 /** Runs `worker` over `items` with a bounded number of parallel tasks. */
 export async function mapWithConcurrency<T, R>(
@@ -69,6 +70,10 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
 /**
  * Runs the full AutoDITag pipeline in the browser:
  * rename, tag, fetch cover art and build the playlist files.
+ *
+ * The audio files are read twice: once to measure them and once to write the
+ * tagged version into the archive. That keeps the memory usage low - only one
+ * track and the archive itself are held in memory, not the whole folder.
  */
 export async function processPlaylist(options: ProcessOptions): Promise<ProcessingResult> {
   const { playlistName, entries, files, musicFolderName, spotify, onProgress, signal } = options;
@@ -81,15 +86,15 @@ export async function processPlaylist(options: ProcessOptions): Promise<Processi
   const usable = plan.tracks.filter((track) => track.source !== null);
   let done = 0;
 
-  // 1. read the audio files
-  const sources = await mapWithConcurrency(usable, 4, async (track) => {
+  // 1. measure the audio files (the bytes are released right away)
+  const measured = await mapWithConcurrency(usable, 4, async (track) => {
     throwIfAborted(signal);
     const file = track.source!.file;
     const bytes = new Uint8Array(await file.arrayBuffer());
     const info = readMp3Info(bytes);
     done += 1;
     onProgress?.(done, steps, `Reading ${track.entry.raw}`);
-    return { track, bytes, duration: info?.durationSeconds ?? 0 };
+    return { track, duration: info?.durationSeconds ?? 0 };
   });
 
   // 2. fetch the cover art (Spotify)
@@ -97,7 +102,7 @@ export async function processPlaylist(options: ProcessOptions): Promise<Processi
   if (spotify && spotify.isConfigured) {
     // fail fast when the credentials are broken - every lookup would fail
     await spotify.getAccessToken();
-    const fetched = await mapWithConcurrency(sources, 4, async (item) => {
+    const fetched = await mapWithConcurrency(measured, 4, async (item) => {
       throwIfAborted(signal);
       const { title, artist } = item.track.entry;
       try {
@@ -123,9 +128,26 @@ export async function processPlaylist(options: ProcessOptions): Promise<Processi
     }
   }
 
-  // 3. write the tags
+  // 3. build the playlist files
+  const folder = safeFileName(musicFolderName) || 'music';
+  const playlistEntries = measured.map((item) => ({
+    durationSeconds: item.duration,
+    artist: item.track.entry.artist,
+    title: item.track.entry.title,
+    path: `${folder}/${item.track.targetName}`,
+  }));
+
+  const m3u = buildM3U(playlistEntries);
+  const m3u8 = m3u;
+
+  // 4. write the tags and build the archive
+  const encoder = new TextEncoder();
+  const archive = createZipStream();
+  archive.add(`${playlistName}.m3u`, encoder.encode(m3u));
+  archive.add(`${playlistName}.m3u8`, encoder.encode(m3u8));
+
   const tracks: ProcessedTrack[] = [];
-  for (const item of sources) {
+  for (const item of measured) {
     throwIfAborted(signal);
     const entry = item.track.entry;
     const trackWarnings = [...item.track.warnings];
@@ -146,22 +168,26 @@ export async function processPlaylist(options: ProcessOptions): Promise<Processi
       picture: cover ?? undefined,
     };
 
-    const stripped = stripTags(item.bytes);
+    const bytes = new Uint8Array(await item.track.source!.file.arrayBuffer());
     // keep the frames the file already had (like the python tool does)
-    const existing = readId3v2(item.bytes);
+    const existing = readId3v2(bytes);
+    const stripped = stripTags(bytes);
     const tag = buildId3v2(payload, { existing });
     const data = concat([tag, stripped.audio]);
+
+    archive.add(`${folder}/${item.track.targetName}`, data);
 
     tracks.push({
       entry,
       source: item.track.source,
       targetName: item.track.targetName,
-      data,
       durationSeconds: item.duration,
       hasCover: cover !== null,
       warnings: trackWarnings,
     });
   }
+
+  const blob = await archive.finish();
 
   // tracks without a source file
   for (const track of plan.tracks) {
@@ -172,19 +198,7 @@ export async function processPlaylist(options: ProcessOptions): Promise<Processi
     }
   }
 
-  // 4. build the playlist files
-  const folder = safeFileName(musicFolderName) || 'music';
-  const playlistEntries = tracks.map((track) => ({
-    durationSeconds: track.durationSeconds,
-    artist: track.entry.artist,
-    title: track.entry.title,
-    path: `${folder}/${track.targetName}`,
-  }));
-
-  const m3u = buildM3U(playlistEntries);
-  const m3u8 = m3u;
-
   onProgress?.(steps, steps, 'Done');
 
-  return { playlistName, tracks, m3u, m3u8, warnings };
+  return { playlistName, tracks, m3u, m3u8, warnings, archive: blob };
 }

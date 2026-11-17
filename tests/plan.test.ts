@@ -87,10 +87,13 @@ describe('buildPlan', () => {
     expect(plan.tracks.every((track) => track.needsRename === false)).toBe(true);
   });
 
-  it('ignores files that are not mp3 files', () => {
+  it('reports a matching file that is not an mp3 file', () => {
     const { entries } = parseDescriptor(DESCRIPTOR);
     const plan = buildPlan(entries, [picked('01-Song.flac'), picked('notes.txt')]);
-    expect(plan.tracks.every((track) => track.status === 'missing')).toBe(true);
+    expect(plan.tracks[0]?.status).toBe('invalid-source');
+    expect(plan.tracks[0]?.warnings.join(' ')).toContain('is not an mp3 file');
+    expect(plan.tracks[0]?.source).toBeNull();
+    expect(plan.tracks[1]?.status).toBe('missing');
     expect(plan.unmatched).toHaveLength(0);
   });
 });

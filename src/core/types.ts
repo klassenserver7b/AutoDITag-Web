@@ -50,12 +50,7 @@ export interface PickedFile {
 }
 
 /** Result of matching one descriptor entry against the selected files. */
-export type TrackStatus =
-  | 'ok'
-  | 'missing'
-  | 'conflict'
-  | 'duplicate'
-  | 'invalid-source';
+export type TrackStatus = 'ok' | 'missing' | 'duplicate' | 'invalid-source';
 
 export interface TrackPlan {
   readonly entry: DescriptorEntry;
@@ -120,8 +115,6 @@ export interface ProcessedTrack {
   readonly entry: DescriptorEntry;
   readonly source: PickedFile | null;
   readonly targetName: string;
-  /** The tagged MP3 bytes. */
-  readonly data: Uint8Array;
   /** Duration in seconds. */
   readonly durationSeconds: number;
   /** `true` when Spotify returned cover art for this track. */
@@ -140,4 +133,6 @@ export interface ProcessingResult {
   readonly m3u8: string;
   /** Run level warnings. */
   readonly warnings: readonly string[];
+  /** The download archive with the tagged mp3 files and the playlist files. */
+  readonly archive: Blob;
 }

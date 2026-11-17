@@ -5,7 +5,7 @@ import { safeFileName } from './core/filename';
 import { processPlaylist } from './core/process';
 import { pickedFilesFromDataTransfer, pickedFilesFromFileList, rootFolderName } from './core/picker';
 import { SpotifyClient, SpotifyError } from './core/spotify';
-import { createZip, downloadBlob } from './core/zip';
+import { downloadBlob } from './core/zip';
 
 /* -------------------------------------------------------------------------- */
 /* helpers                                                                     */
@@ -54,10 +54,7 @@ function setState(state: 'idle' | 'running' | 'done' | 'error'): void {
 
 function setList(element: HTMLElement, messages: readonly string[]): void {
   element.replaceChildren();
-  if (messages.length === 0) {
-    document.body.classList.remove('has-issues', 'has-warnings');
-    return;
-  }
+  if (messages.length === 0) return;
   const list = document.createElement('ul');
   for (const message of messages) {
     const item = document.createElement('li');
@@ -373,16 +370,7 @@ async function run(): Promise<void> {
     });
 
     lastResult = result;
-    const zipEntries = [
-      { name: `${playlistName}.m3u`, data: new TextEncoder().encode(result.m3u) },
-      { name: `${playlistName}.m3u8`, data: new TextEncoder().encode(result.m3u8) },
-      ...result.tracks.map((track) => ({
-        name: `${musicFolderName}/${track.targetName}`,
-        data: track.data,
-      })),
-    ];
-    const zipData = await createZip(zipEntries);
-    lastZip = new Blob([zipData as BlobPart], { type: 'application/zip' });
+    lastZip = result.archive;
 
     setList(dom.warnings, [...result.warnings, ...nestedFileWarnings()]);
     document.body.classList.toggle(
