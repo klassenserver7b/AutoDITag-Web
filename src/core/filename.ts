@@ -70,3 +70,18 @@ export function matchesTrackPrefix(fileName: string, index: number): boolean {
 export function targetFileName(descriptorLine: string): string {
   return `${descriptorLine}.mp3`;
 }
+
+/**
+ * Makes a file name safe for the file system and for the zip archive.
+ *
+ * A descriptor line may contain characters that are not allowed in a file name
+ * (`/` for example). The python tool failed on such a line, here the character
+ * is replaced instead.
+ */
+export function safeFileName(name: string): string {
+  return name
+    .replace(/[/\\]/g, '_')
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .trim();
+}

@@ -104,7 +104,10 @@ The port keeps the behaviour of `auto_di_tag.py` but fixes a few rough edges:
 | `TRK` frame | mutagen silently dropped it (a frame id needs four characters) | not written, `TRCK` is used |
 | Comment language | `XXX` (mutagen placeholder) | `eng` |
 | Duration of a file | mutagen | own MP3 parser, verified against mutagen on real files |
-| Existing tags of a file | kept, except `COMM` and `TXXX` | kept the same way |
+| Existing ID3v2 frames of a file | kept, except `COMM` and `TXXX` | kept the same way |
+| ID3v1 tag at the end of the file | kept (with outdated values) | removed, it would contradict the new tags |
+| File without an ID3v2 tag | skipped, mutagen refuses to read it | tagged anyway |
+| Files in sub folders | ignored (`os.listdir` only reads the top level) | ignored as well, but they are listed as a warning |
 | Output | files renamed in place | files are downloaded as a ZIP, the browser cannot write to your disk |
 | Spotify credentials | config file / env / CLI | entered in the app, optionally remembered in local storage |
 

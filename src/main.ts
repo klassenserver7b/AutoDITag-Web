@@ -1,6 +1,7 @@
 import type { DescriptorEntry, PickedFile, ProcessingResult } from './core/types';
 import { parseDescriptor } from './core/descriptor';
 import { buildPlan } from './core/plan';
+import { safeFileName } from './core/filename';
 import { processPlaylist } from './core/process';
 import { pickedFilesFromDataTransfer, pickedFilesFromFileList, rootFolderName } from './core/picker';
 import { SpotifyClient, SpotifyError } from './core/spotify';
@@ -86,6 +87,7 @@ function today(): string {
 /* -------------------------------------------------------------------------- */
 
 let musicFiles: PickedFile[] = [];
+let nestedFiles: PickedFile[] = [];
 let lastResult: ProcessingResult | null = null;
 let lastZip: Blob | null = null;
 let running = false;
@@ -137,7 +139,6 @@ function renderPlan(): void {
       }
       if (className === 'status' && track.warnings.length > 0) {
         cell.title = track.warnings.join(' ');
-        cell.classList.add('has-note');
       }
       row.append(cell);
     }
@@ -145,8 +146,11 @@ function renderPlan(): void {
     dom.planBody.append(row);
   }
 
-  setList(dom.warnings, plan.warnings);
-  document.body.classList.toggle('has-warnings', plan.warnings.length > 0);
+  setList(dom.warnings, [...plan.warnings, ...nestedFileWarnings()]);
+  document.body.classList.toggle(
+    'has-warnings',
+    plan.warnings.length > 0 || nestedFiles.length > 0,
+  );
 
   const missing = plan.tracks.filter((track) => track.status === 'missing').length;
   const mp3Count = musicFiles.filter((file) => file.name.toLowerCase().endsWith('.mp3')).length;
@@ -161,6 +165,17 @@ function renderPlan(): void {
   } else {
     setStatus(`${plan.tracks.length} tracks ready to process.`, 'info');
   }
+}
+
+/** Warnings about files that are not used at all. */
+function nestedFileWarnings(): string[] {
+  if (nestedFiles.length === 0) return [];
+  const names = nestedFiles.map((file) => file.relativePath).slice(0, 5).join(', ');
+  return [
+    `${nestedFiles.length} file(s) in sub folders are ignored: ${names}${
+      nestedFiles.length > 5 ? ', …' : ''
+    }`,
+  ];
 }
 
 /** The download of the last run does not match the current input any more. */
@@ -193,7 +208,17 @@ function statusLabel(status: string): string {
 /* -------------------------------------------------------------------------- */
 
 function setMusicFiles(files: PickedFile[]): void {
-  musicFiles = files;
+  // The python tool only looks at the files of the chosen folder, files in
+  // sub folders are ignored (but the user is told about them).
+  musicFiles = [];
+  nestedFiles = [];
+  for (const file of files) {
+    if (file.relativePath.split('/').length > 2) {
+      nestedFiles.push(file);
+    } else {
+      musicFiles.push(file);
+    }
+  }
   renderPlan();
 }
 
@@ -223,7 +248,7 @@ dom.dropZone.addEventListener('dragenter', (event) => {
 });
 dom.dropZone.addEventListener('dragover', (event) => {
   event.preventDefault();
-  event.dataTransfer!.dropEffect = 'copy';
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
 });
 dom.dropZone.addEventListener('dragleave', () => {
   dragDepth = Math.max(0, dragDepth - 1);
@@ -313,6 +338,7 @@ async function run(): Promise<void> {
 
   const playlistName = dom.playlistName.value.trim() || `Playlist ${today()}`;
   const spotify = buildSpotifyClient();
+  const musicFolderName = safeFileName(rootFolderName(musicFiles)) || 'music';
 
   if (spotify && !spotify.isConfigured) {
     setStatus('Please enter a Spotify client id and client secret, or disable cover art.', 'error');
@@ -336,7 +362,7 @@ async function run(): Promise<void> {
       playlistName,
       entries,
       files: musicFiles,
-      musicFolderName: rootFolderName(musicFiles),
+      musicFolderName,
       spotify,
       signal: abortController.signal,
       onProgress: (done, total, message) => {
@@ -351,15 +377,18 @@ async function run(): Promise<void> {
       { name: `${playlistName}.m3u`, data: new TextEncoder().encode(result.m3u) },
       { name: `${playlistName}.m3u8`, data: new TextEncoder().encode(result.m3u8) },
       ...result.tracks.map((track) => ({
-        name: `${rootFolderName(musicFiles)}/${track.targetName}`,
+        name: `${musicFolderName}/${track.targetName}`,
         data: track.data,
       })),
     ];
     const zipData = await createZip(zipEntries);
     lastZip = new Blob([zipData as BlobPart], { type: 'application/zip' });
 
-    setList(dom.warnings, result.warnings);
-    document.body.classList.toggle('has-warnings', result.warnings.length > 0);
+    setList(dom.warnings, [...result.warnings, ...nestedFileWarnings()]);
+    document.body.classList.toggle(
+      'has-warnings',
+      result.warnings.length > 0 || nestedFiles.length > 0,
+    );
     renderResult(result);
     document.body.classList.add('has-results');
     dom.downloadButton.disabled = false;

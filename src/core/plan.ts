@@ -5,7 +5,7 @@ import type {
   TrackPlan,
   TrackStatus,
 } from './types';
-import { isMp3, matchesTrackPrefix, targetFileName } from './filename';
+import { isMp3, matchesTrackPrefix, safeFileName, targetFileName } from './filename';
 
 /**
  * Matches the descriptor entries against the selected files.
@@ -28,7 +28,7 @@ export function buildPlan(
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
 
   for (const entry of entries) {
-    const targetName = targetFileName(entry.raw);
+    const targetName = safeFileName(targetFileName(entry.raw));
     const trackWarnings: string[] = [];
     let status: TrackStatus = 'ok';
     let source: PickedFile | undefined;

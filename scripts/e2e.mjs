@@ -57,6 +57,19 @@ function createFixtures() {
       return false;
     }
   }
+
+  // a file in a sub folder - like the python tool, it has to be ignored
+  mkdirSync(path.join(fixtureDir, 'sub'), { recursive: true });
+  const nested = spawnSync(
+    'ffmpeg',
+    ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=frequency=880:duration=1',
+      '-c:a', 'libmp3lame', '-b:a', '128k', '-y', path.join(fixtureDir, 'sub', '04-Sub.mp3')],
+    { encoding: 'utf8' },
+  );
+  if (nested.status !== 0) {
+    fail(`ffmpeg could not create the nested test file: ${nested.stderr}`);
+    return false;
+  }
   return true;
 }
 
@@ -124,11 +137,20 @@ async function main() {
     if (!listing.stdout.includes('E2E Playlist.m3u')) fail('the .m3u file is missing in the archive');
     if (!listing.stdout.includes('E2E Playlist.m3u8')) fail('the .m3u8 file is missing in the archive');
     if (!listing.stdout.includes('01_Voices of Spring')) fail('the tagged mp3 files are missing');
+    if (listing.stdout.includes('04-Sub')) fail('a file from a sub folder must not be processed');
 
-    // the playlist content
+    // 6. the playlist content
     const m3u = spawnSync('unzip', ['-p', zipPath, 'E2E Playlist.m3u'], { encoding: 'utf8' });
     writeFileSync(path.join(outputDir, 'playlist.m3u'), m3u.stdout);
     log(`playlist:\n${m3u.stdout}`);
+
+    // the file in the sub folder has to be reported as ignored
+    const warnings = await page.locator('#warnings').innerText();
+    if (!warnings.includes('sub')) {
+      fail(`the ignored sub folder file is not reported: ${warnings}`);
+    } else {
+      log(`warnings: ${warnings.replace(/\n/g, ' | ')}`);
+    }
 
     // 8. drag & drop of a file has to work as well (Firefox path)
     await page.evaluate(() => {

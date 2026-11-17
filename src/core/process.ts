@@ -10,6 +10,7 @@ import { buildId3v2, readId3v2 } from './id3';
 import { readMp3Info, stripTags } from './mp3';
 import { buildM3U } from './playlist';
 import { buildPlan } from './plan';
+import { safeFileName } from './filename';
 import type { SpotifyClient } from './spotify';
 
 /** Runs `worker` over `items` with a bounded number of parallel tasks. */
@@ -172,11 +173,12 @@ export async function processPlaylist(options: ProcessOptions): Promise<Processi
   }
 
   // 4. build the playlist files
+  const folder = safeFileName(musicFolderName) || 'music';
   const playlistEntries = tracks.map((track) => ({
     durationSeconds: track.durationSeconds,
     artist: track.entry.artist,
     title: track.entry.title,
-    path: `${musicFolderName}/${track.targetName}`,
+    path: `${folder}/${track.targetName}`,
   }));
 
   const m3u = buildM3U(playlistEntries);
