@@ -67,6 +67,18 @@ describe('parseDescriptor', () => {
     expect(result.entries).toHaveLength(12);
   });
 
+  it('counts the lines like python readlines (no extra line for a final newline)', () => {
+    // a 9 line file has one digit track numbers, even with a trailing newline
+    const lines = Array.from({ length: 9 }, (_, index) =>
+      index === 4
+        ? '7_Wrong; Artist -- Dance'
+        : `${index + 1}_Song${index + 1}; Artist -- Dance`,
+    );
+    const result = parseDescriptor(`${lines.join('\n')}\n`);
+    expect(result.issues[0]?.message).toContain("Expected '5'");
+    expect(result.issues[0]?.message).not.toContain("Expected '05'");
+  });
+
   it('rejects an empty descriptor file', () => {
     const result = parseDescriptor('\n  \n');
     expect(result.ok).toBe(false);

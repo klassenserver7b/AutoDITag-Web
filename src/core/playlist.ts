@@ -37,8 +37,3 @@ export function buildM3U(entries: readonly PlaylistEntry[]): string {
   }
   return lines.join('');
 }
-
-/** File name of the generated playlist. */
-export function playlistFileName(playlistName: string, extension: 'm3u' | 'm3u8'): string {
-  return `${playlistName}.${extension}`;
-}

@@ -45,6 +45,12 @@ export function parseDescriptor(text: string): DescriptorParseResult {
   // The original reads with `encoding="utf-8-sig"`, so a BOM is ignored.
   const withoutBom = text.replace(/^\uFEFF/, '');
   const rawLines = withoutBom.split(/\r\n|\r|\n/);
+  // Python's readlines() does not produce an extra empty line for the final
+  // newline, so a 9 line file has 9 lines, not 10.
+  const lineCount =
+    rawLines.length > 0 && rawLines[rawLines.length - 1] === ''
+      ? rawLines.length - 1
+      : rawLines.length;
   const lines = rawLines.map((line) => line.trim()).filter((line) => line.length > 0);
 
   if (lines.length === 0) {
@@ -52,7 +58,7 @@ export function parseDescriptor(text: string): DescriptorParseResult {
     return { entries, issues, ok: false };
   }
 
-  const digits = expectedTrackNumberDigits(rawLines.length);
+  const digits = expectedTrackNumberDigits(lineCount);
 
   lines.forEach((line, index) => {
     const lineNumber = index + 1;

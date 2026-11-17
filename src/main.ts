@@ -191,10 +191,6 @@ function statusLabel(status: string): string {
       return 'ready';
     case 'missing':
       return 'missing file';
-    case 'duplicate':
-      return 'duplicate';
-    case 'conflict':
-      return 'conflict';
     default:
       return status;
   }
@@ -227,7 +223,19 @@ dom.musicInput.addEventListener('change', () => {
 dom.descriptorInput.addEventListener('change', async () => {
   const file = dom.descriptorInput.files?.[0];
   if (!file) return;
-  dom.descriptorText.value = await file.text();
+  try {
+    // `file.text()` would silently replace invalid bytes with U+FFFD. The
+    // Python tool refuses such a file, so decoding has to be strict.
+    const bytes = await file.arrayBuffer();
+    dom.descriptorText.value = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch (error) {
+    if (error instanceof TypeError) {
+      setStatus('The descriptor file is not valid UTF-8.', 'error');
+      setState('error');
+      return;
+    }
+    throw error;
+  }
   renderPlan();
 });
 
@@ -319,11 +327,14 @@ async function run(): Promise<void> {
   setList(dom.issues, issues);
   document.body.classList.toggle('has-issues', issues.length > 0);
 
+  // like the Python tool, a broken descriptor file must not be processed
+  if (issues.length > 0) {
+    setStatus('The descriptor file has problems. Fix them first.', 'error');
+    setState('error');
+    return;
+  }
   if (entries.length === 0) {
-    setStatus(
-      issues.length > 0 ? 'Fix the descriptor file problems first.' : 'Load the descriptor file first.',
-      'error',
-    );
+    setStatus('Load the descriptor file first.', 'error');
     setState('error');
     return;
   }
@@ -349,9 +360,9 @@ async function run(): Promise<void> {
   abortController = new AbortController();
   setState('running');
   dom.runButton.disabled = true;
+  dom.cancelButton.disabled = false;
   dom.downloadButton.disabled = true;
   dom.progress.value = 0;
-  dom.progress.max = entries.length;
   setStatus('Starting…', 'busy');
 
   try {
@@ -369,14 +380,28 @@ async function run(): Promise<void> {
       },
     });
 
+    // warnings of a single track have to say which track they belong to
+    const trackWarnings = result.tracks.flatMap((track) =>
+      track.warnings.map((warning) => `${track.entry.raw}: ${warning}`),
+    );
+    const warnings = [...result.warnings, ...trackWarnings, ...nestedFileWarnings()];
+    setList(dom.warnings, warnings);
+    document.body.classList.toggle('has-warnings', warnings.length > 0);
+
+    // an empty result is a failed run, not a success with an empty download
+    if (result.tracks.length === 0) {
+      lastResult = null;
+      lastZip = null;
+      dom.downloadButton.disabled = true;
+      document.body.classList.remove('has-results');
+      dom.results.replaceChildren();
+      setState('error');
+      setStatus('No file could be processed — check the rename plan.', 'error');
+      return;
+    }
+
     lastResult = result;
     lastZip = result.archive;
-
-    setList(dom.warnings, [...result.warnings, ...nestedFileWarnings()]);
-    document.body.classList.toggle(
-      'has-warnings',
-      result.warnings.length > 0 || nestedFiles.length > 0,
-    );
     renderResult(result);
     document.body.classList.add('has-results');
     dom.downloadButton.disabled = false;
@@ -401,6 +426,7 @@ async function run(): Promise<void> {
     running = false;
     abortController = null;
     dom.runButton.disabled = false;
+    dom.cancelButton.disabled = true;
   }
 }
 
@@ -409,11 +435,16 @@ function renderResult(result: ProcessingResult): void {
 
   const total = result.tracks.reduce((sum, track) => sum + track.durationSeconds, 0);
   const withCover = result.tracks.filter((track) => track.hasCover).length;
+  // the run level warnings already mention every entry that had no file
+  const skipped = result.warnings.filter((warning) =>
+    warning.includes('no matching file found'),
+  ).length;
 
   const list = document.createElement('dl');
   list.className = 'result-list';
   const items: [string, string][] = [
     ['Tracks', String(result.tracks.length)],
+    ['Skipped (no matching file)', String(skipped)],
     ['Total length', formatDuration(total)],
     ['Cover art', result.tracks.length > 0 ? `${withCover} of ${result.tracks.length}` : '—'],
     ['Playlist files', `${result.playlistName}.m3u and ${result.playlistName}.m3u8`],
@@ -443,7 +474,7 @@ dom.cancelButton.addEventListener('click', () => {
 
 dom.downloadButton.addEventListener('click', () => {
   if (!lastZip || !lastResult) return;
-  const name = `${lastResult.playlistName}.zip`;
+  const name = `${safeFileName(lastResult.playlistName)}.zip`;
   downloadBlob(lastZip, name);
   setStatus(`Downloading ${name}…`, 'success');
 });
@@ -457,6 +488,7 @@ function init(): void {
   dom.progress.max = 1;
   dom.progress.value = 0;
   dom.downloadButton.disabled = true;
+  dom.cancelButton.disabled = true;
   loadCredentials();
   setState('idle');
   renderPlan();

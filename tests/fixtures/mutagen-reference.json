@@ -1,0 +1,29 @@
+[
+  {
+    "file": "fixture-01.mp3",
+    "duration": 1.5412,
+    "bitrateBps": 127997,
+    "sampleRate": 44100,
+    "channels": 2,
+    "mpegVersion": 1,
+    "layer": 3
+  },
+  {
+    "file": "fixture-02.mp3",
+    "duration": 2.0376,
+    "bitrateBps": 127997,
+    "sampleRate": 44100,
+    "channels": 2,
+    "mpegVersion": 1,
+    "layer": 3
+  },
+  {
+    "file": "fixture-03.mp3",
+    "duration": 2.5339,
+    "bitrateBps": 128000,
+    "sampleRate": 44100,
+    "channels": 2,
+    "mpegVersion": 1,
+    "layer": 3
+  }
+]

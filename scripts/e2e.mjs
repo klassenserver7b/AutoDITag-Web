@@ -28,6 +28,8 @@ import { firefox } from 'playwright';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const workDir = path.join(tmpdir(), 'autoditag-e2e');
 const fixtureDir = path.join(workDir, 'Tanzmusik');
+const mismatchDir = path.join(workDir, 'Unrelated');
+const brokenAudioDir = path.join(workDir, 'Broken');
 const outputDir = path.join(workDir, 'out');
 const siteDir = path.join(workDir, 'site');
 // the app is served from a sub path, exactly like on GitHub Pages
@@ -82,54 +84,56 @@ function fail(message) {
   process.exitCode = 1;
 }
 
+/**
+ * Builds a synthetic MPEG1 Layer III file (44.1 kHz, 128 kbit/s, stereo).
+ *
+ * The CI runner has no ffmpeg, so the fixtures are generated here. The frames
+ * only need a valid header - the app and mutagen both derive the duration from
+ * the frame headers and the file size.
+ */
+function makeMp3(durationSeconds) {
+  const sampleRate = 44100;
+  const bitrateKbps = 128;
+  const frameLength = Math.floor((144 * bitrateKbps * 1000) / sampleRate);
+  const frames = Math.ceil((durationSeconds * sampleRate) / 1152);
+  const data = Buffer.alloc(frames * frameLength);
+  for (let index = 0; index < frames; index += 1) {
+    const offset = index * frameLength;
+    data[offset] = 0xff;
+    data[offset + 1] = 0xfb; // MPEG1, Layer III, no CRC
+    data[offset + 2] = 0x90; // 128 kbit/s, 44.1 kHz
+    data[offset + 3] = 0x00; // stereo
+  }
+  return data;
+}
+
+/** A tiny, valid 8x8 blue JPEG for the mocked Spotify cover. */
+const COVER_JPEG_BASE64 =
+  '/9j/4AAQSkZJRgABAgAAAQABAAD//gAPTGF2YzYzLjEuMTAyAP/bAEMACAQEBAQEBQUFBQUFBgYGBgYGBgYGBgYGBgcHBwgICAcHBwYGBwcICAgICQkJCAgICAkJCgoKDAwLCw4ODhERFP/EAEwAAQEAAAAAAAAAAAAAAAAAAAAHAQEBAAAAAAAAAAAAAAAAAAAFBxABAAAAAAAAAAAAAAAAAAAAABEBAAAAAAAAAAAAAAAAAAAAAP/AABEIAAgACAMBIgACEQADEQD/2gAMAwEAAhEDEQA/AI4Av4p//9k=';
+
 function createFixtures() {
   rmSync(workDir, { recursive: true, force: true });
   mkdirSync(fixtureDir, { recursive: true });
   mkdirSync(outputDir, { recursive: true });
 
-  const tones = [
-    { file: '01-Song.mp3', frequency: 440 },
-    { file: '02-Song.mp3', frequency: 523 },
-    { file: '03-Song.mp3', frequency: 659 },
-  ];
-  for (const tone of tones) {
-    const result = spawnSync(
-      'ffmpeg',
-      ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', `sine=frequency=${tone.frequency}:duration=3`,
-        '-c:a', 'libmp3lame', '-b:a', '128k', '-y', path.join(fixtureDir, tone.file)],
-      { encoding: 'utf8' },
-    );
-    if (result.status !== 0) {
-      fail(`ffmpeg could not create the test file: ${result.stderr}`);
-      return false;
-    }
+  for (const file of ['01-Song.mp3', '02-Song.mp3', '03-Song.mp3']) {
+    writeFileSync(path.join(fixtureDir, file), makeMp3(3));
   }
 
   // a file in a sub folder - like the python tool, it has to be ignored
   mkdirSync(path.join(fixtureDir, 'sub'), { recursive: true });
-  const nested = spawnSync(
-    'ffmpeg',
-    ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=frequency=880:duration=1',
-      '-c:a', 'libmp3lame', '-b:a', '128k', '-y', path.join(fixtureDir, 'sub', '04-Sub.mp3')],
-    { encoding: 'utf8' },
-  );
-  if (nested.status !== 0) {
-    fail(`ffmpeg could not create the nested test file: ${nested.stderr}`);
-    return false;
-  }
+  writeFileSync(path.join(fixtureDir, 'sub', '04-Sub.mp3'), makeMp3(1));
+
+  // a folder whose file does not match any descriptor entry
+  mkdirSync(mismatchDir, { recursive: true });
+  writeFileSync(path.join(mismatchDir, '99-Other.mp3'), makeMp3(3));
+
+  // a file that matches, but is not readable as audio
+  mkdirSync(brokenAudioDir, { recursive: true });
+  writeFileSync(path.join(brokenAudioDir, '01-broken.mp3'), Buffer.from('not an mp3 file'));
 
   // a small jpeg for the fake spotify cover
-  const cover = path.join(workDir, 'cover.jpg');
-  const jpeg = spawnSync(
-    'ffmpeg',
-    ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=blue:size=64x64:duration=1',
-      '-frames:v', '1', '-y', cover],
-    { encoding: 'utf8' },
-  );
-  if (jpeg.status !== 0) {
-    fail(`ffmpeg could not create the cover image: ${jpeg.stderr}`);
-    return false;
-  }
+  writeFileSync(path.join(workDir, 'cover.jpg'), Buffer.from(COVER_JPEG_BASE64, 'base64'));
   return true;
 }
 
@@ -162,12 +166,35 @@ async function main() {
     await page.goto(url, { waitUntil: 'networkidle' });
     log(`loaded: ${await page.title()}`);
 
+    if (!(await page.isDisabled('#cancel-button'))) {
+      fail('the cancel button must be disabled while no job runs');
+    }
+
     // 1. pick the folder with the mp3 files
     await page.setInputFiles('#music-input', fixtureDir);
 
     // 2. enter the descriptor file and the playlist name
     await page.fill('#descriptor-text', DESCRIPTOR);
     await page.fill('#playlist-name', 'E2E Playlist');
+
+    // 2b. a descriptor file that is not UTF-8 is refused, the textarea stays
+    const descriptorBefore = await page.inputValue('#descriptor-text');
+    await page.setInputFiles('#descriptor-input', {
+      name: 'broken.txt',
+      mimeType: 'text/plain',
+      buffer: Buffer.from([0xff, 0xfe, 0x41]),
+    });
+    await page.waitForFunction(
+      () => document.getElementById('status')?.textContent?.includes('not valid UTF-8'),
+      undefined,
+      { timeout: 10_000 },
+    );
+    if ((await page.inputValue('#descriptor-text')) !== descriptorBefore) {
+      fail('the textarea changed for a non UTF-8 descriptor file');
+    } else {
+      log('utf-8 check: the invalid descriptor file was refused');
+    }
+    await page.fill('#descriptor-text', DESCRIPTOR);
 
     // 3. the preview table must list every track
     await page.waitForFunction(
@@ -187,6 +214,17 @@ async function main() {
     const status = await page.locator('#status').innerText();
     log(`status: ${status}`);
     if (!/done/i.test(status)) fail(`unexpected status: ${status}`);
+    if (!(await page.isDisabled('#cancel-button'))) {
+      fail('the cancel button must be disabled after the job finished');
+    }
+
+    // the result panel shows how many tracks had no matching file
+    const resultText = (await page.locator('#results').innerText())
+      .toLowerCase()
+      .replace(/\s+/g, ' ');
+    if (!resultText.includes('skipped (no matching file) 0')) {
+      fail(`the result panel does not show the skipped tracks: ${resultText}`);
+    }
 
     // 5. download the zip
     const downloadPromise = page.waitForEvent('download', { timeout: 60_000 });
@@ -250,10 +288,12 @@ async function main() {
     if (spotify.ok) {
       log(`spotify token endpoint reachable from the browser (status ${spotify.status}, ${JSON.stringify(spotify.body)})`);
       if (spotify.status !== 400 || spotify.body?.error !== 'invalid_client') {
-        fail(`unexpected answer from the spotify token endpoint: ${JSON.stringify(spotify.body)}`);
+        log(`WARNING: unexpected answer from the spotify token endpoint: ${JSON.stringify(spotify.body)}`);
       }
     } else {
-      fail(`the spotify token endpoint is not reachable from the browser: ${spotify.error}`);
+      // the reachability probe is only a warning: CI must not depend on
+      // accounts.spotify.com. The mocked cover art flow below is the hard check.
+      log(`WARNING: the spotify token endpoint is not reachable from the browser: ${spotify.error}`);
     }
 
     // 10. the spotify flow with a mocked api: the cover has to be embedded
@@ -327,6 +367,52 @@ async function main() {
     const coverZipPath = path.join(outputDir, 'cover.zip');
     await coverZip.saveAs(coverZipPath);
     log(`downloaded: ${coverZip.suggestedFilename()} -> ${coverZipPath}`);
+
+    // 11. a broken descriptor file must be refused (all issues stay visible)
+    await page.setInputFiles('#music-input', fixtureDir);
+    await page.fill('#descriptor-text', '01_Song, Artist -- Dance');
+    await page.click('#run-button');
+    await page.waitForFunction(
+      () => document.getElementById('status')?.textContent?.includes('descriptor file has problems'),
+      undefined,
+      { timeout: 10_000 },
+    );
+    if (!(await page.locator('#issues').innerText()).includes('Found comma (,)')) {
+      fail('the descriptor issues are not shown');
+    }
+    if (!(await page.isDisabled('#download-button'))) {
+      fail('a broken descriptor file must not enable the download button');
+    }
+    log('descriptor check: a broken descriptor file was refused');
+
+    // 12. a run without any matching file is an error, not a success
+    await page.setInputFiles('#music-input', mismatchDir);
+    await page.fill('#descriptor-text', DESCRIPTOR);
+    await page.click('#run-button');
+    await page.waitForFunction(
+      () => document.getElementById('status')?.textContent?.includes('No file could be processed'),
+      undefined,
+      { timeout: 10_000 },
+    );
+    if (!(await page.isDisabled('#download-button'))) {
+      fail('a run without any processed track must not enable the download button');
+    }
+    log('empty run: reported as an error');
+
+    // 13. warnings of a single track name the track they belong to
+    await page.setInputFiles('#music-input', brokenAudioDir);
+    await page.fill('#descriptor-text', '01_Waltz; Artist -- Dance');
+    await page.click('#run-button');
+    await page.waitForFunction(
+      () => document.getElementById('status')?.textContent?.includes('1 tracks processed'),
+      undefined,
+      { timeout: 10_000 },
+    );
+    const trackWarnings = await page.locator('#warnings').innerText();
+    if (!trackWarnings.includes('01_Waltz; Artist -- Dance: The duration of the file could not be determined.')) {
+      fail(`the per track warning is missing: ${trackWarnings}`);
+    }
+    log('warnings check: the per track warning names the track');
 
     if (consoleErrors.length > 0) {
       fail(`the browser reported errors:\n${consoleErrors.join('\n')}`);

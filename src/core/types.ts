@@ -50,7 +50,7 @@ export interface PickedFile {
 }
 
 /** Result of matching one descriptor entry against the selected files. */
-export type TrackStatus = 'ok' | 'missing' | 'duplicate' | 'invalid-source';
+export type TrackStatus = 'ok' | 'missing' | 'invalid-source';
 
 export interface TrackPlan {
   readonly entry: DescriptorEntry;
@@ -58,8 +58,6 @@ export interface TrackPlan {
   readonly source: PickedFile | null;
   /** File name after renaming, e.g. `01_Voices of Spring; André Rieu -- Wiener Walzer.mp3`. */
   readonly targetName: string;
-  /** `true` when the source file has to be renamed. */
-  readonly needsRename: boolean;
   readonly status: TrackStatus;
   /** Non fatal problems, e.g. "multiple files matched". */
   readonly warnings: readonly string[];

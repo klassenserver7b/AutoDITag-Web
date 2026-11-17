@@ -125,6 +125,27 @@ describe('processPlaylist', () => {
     expect(readId3v2(data)?.text.TIT2).toBe('Waltz');
   });
 
+  it('sanitises the playlist file names but keeps the album tag raw', async () => {
+    const { entries } = parseDescriptor('01_Waltz; Artist -- Dance');
+    const result = await processPlaylist({
+      playlistName: '../../evil',
+      entries,
+      files: [picked('01-Song.mp3', makeMp3({ frames: 10 }))],
+      musicFolderName: 'Tanzmusik',
+      spotify: null,
+    });
+
+    const archive = await archiveEntries(result.archive);
+    expect(Object.keys(archive).sort()).toEqual([
+      '.._.._evil.m3u',
+      '.._.._evil.m3u8',
+      'Tanzmusik/01_Waltz; Artist -- Dance.mp3',
+    ]);
+    const tagged = archive['Tanzmusik/01_Waltz; Artist -- Dance.mp3'] as Uint8Array;
+    expect(readId3v2(tagged)?.text.TALB).toBe('../../evil');
+    expect(readId3v2(tagged)?.text.TPE2).toBe('../../evil');
+  });
+
   it('can be cancelled', async () => {
     const { entries } = parseDescriptor('01_Waltz; Artist -- Dance');
     const controller = new AbortController();

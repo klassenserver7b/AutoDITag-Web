@@ -68,15 +68,29 @@ export class SpotifyClient {
   readonly #clientSecret: string;
   #token: string | null = null;
   #tokenExpiresAt = 0;
+  #signal: AbortSignal | null = null;
 
   constructor(clientId: string, clientSecret: string) {
     this.#clientId = clientId.trim();
     this.#clientSecret = clientSecret.trim();
   }
 
+  /**
+   * The signal of the running job. Every request uses it, so cancelling the
+   * job aborts the pending Spotify requests instead of letting them finish.
+   */
+  set signal(signal: AbortSignal | undefined) {
+    this.#signal = signal ?? null;
+  }
+
   /** `true` when both credentials are present. */
   get isConfigured(): boolean {
     return this.#clientId.length > 0 && this.#clientSecret.length > 0;
+  }
+
+  /** The request init shared by all requests. */
+  #requestInit(init: RequestInit = {}): RequestInit {
+    return this.#signal ? { ...init, signal: this.#signal } : init;
   }
 
   /** Requests (or reuses) an access token via the client credentials flow. */
@@ -100,12 +114,16 @@ export class SpotifyClient {
 
     let response: Response;
     try {
-      response = await fetch(TOKEN_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: body.toString(),
-      });
+      response = await fetch(
+        TOKEN_URL,
+        this.#requestInit({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: body.toString(),
+        }),
+      );
     } catch (error) {
+      if ((error as Error).name === 'AbortError') throw error;
       throw new SpotifyError(
         `Could not reach Spotify (${(error as Error).message}). Check your network connection.`,
         0,
@@ -153,8 +171,12 @@ export class SpotifyClient {
 
     let response: Response;
     try {
-      response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      response = await fetch(
+        url,
+        this.#requestInit({ headers: { Authorization: `Bearer ${token}` } }),
+      );
     } catch (error) {
+      if ((error as Error).name === 'AbortError') throw error;
       throw new SpotifyError(
         `Could not reach the Spotify Web API (${(error as Error).message}).`,
         0,
@@ -195,8 +217,9 @@ export class SpotifyClient {
     if (!track.image) return null;
     let response: Response;
     try {
-      response = await fetch(track.image.url);
+      response = await fetch(track.image.url, this.#requestInit());
     } catch (error) {
+      if ((error as Error).name === 'AbortError') throw error;
       throw new SpotifyError(
         `Could not download the cover art (${(error as Error).message}).`,
         0,

@@ -111,13 +111,6 @@ describe('buildId3v2', () => {
     expect(parsed?.frames.some((frame) => frame.id === 'APIC')).toBe(true);
   });
 
-  it('supports id3v2.3', () => {
-    const tag = buildId3v2(payload, { version: 2.3 });
-    expect(tag[3]).toBe(0x03);
-    const parsed = readId3v2(tag);
-    expect(parsed?.text.TIT2).toBe(payload.title);
-  });
-
   it('returns null when there is no id3 header', () => {
     expect(readId3v2(new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]))).toBeNull();
   });

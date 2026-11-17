@@ -1,10 +1,4 @@
-import type {
-  DescriptorEntry,
-  PickedFile,
-  ProcessingPlan,
-  TrackPlan,
-  TrackStatus,
-} from './types';
+import type { DescriptorEntry, PickedFile, ProcessingPlan, TrackPlan, TrackStatus } from './types';
 import { isMp3, matchesTrackPrefix, safeFileName, targetFileName } from './filename';
 
 /**
@@ -21,7 +15,6 @@ export function buildPlan(
   const tracks: TrackPlan[] = [];
   const warnings: string[] = [];
   const used = new Set<PickedFile>();
-  const takenTargets = new Map<string, DescriptorEntry>();
 
   const candidates = [...files].sort((a, b) =>
     a.name.localeCompare(b.name, undefined, { numeric: true }),
@@ -68,21 +61,10 @@ export function buildPlan(
       );
     }
 
-    const previous = takenTargets.get(targetName);
-    if (previous) {
-      status = 'duplicate';
-      trackWarnings.push(
-        `Target file already exists, skipping: ${targetName} (already used by line ${previous.lineNumber})`,
-      );
-    } else {
-      takenTargets.set(targetName, entry);
-    }
-
     tracks.push({
       entry,
       source: source ?? null,
       targetName,
-      needsRename: source !== undefined && source.name !== targetName,
       status,
       warnings: trackWarnings,
     });

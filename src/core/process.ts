@@ -77,6 +77,8 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
  */
 export async function processPlaylist(options: ProcessOptions): Promise<ProcessingResult> {
   const { playlistName, entries, files, musicFolderName, spotify, onProgress, signal } = options;
+  // the same signal aborts the Spotify requests as well
+  if (spotify) spotify.signal = signal;
   const plan = buildPlan(entries, files);
   const warnings = [...plan.warnings];
   const total = plan.tracks.length;
@@ -111,6 +113,8 @@ export async function processPlaylist(options: ProcessOptions): Promise<Processi
         onProgress?.(done, steps, `Fetching cover for ${title}`);
         return { key: item.track.entry.raw, cover, error: null as string | null };
       } catch (error) {
+        // a cancelled job must stop instead of collecting "cover failed"
+        if ((error as Error).name === 'AbortError') throw error;
         done += 1;
         onProgress?.(done, steps, `Cover failed for ${title}`);
         return {
@@ -143,8 +147,11 @@ export async function processPlaylist(options: ProcessOptions): Promise<Processi
   // 4. write the tags and build the archive
   const encoder = new TextEncoder();
   const archive = createZipStream();
-  archive.add(`${playlistName}.m3u`, encoder.encode(m3u));
-  archive.add(`${playlistName}.m3u8`, encoder.encode(m3u8));
+  // The album tag keeps the raw name (like the Python tool), but the archive
+  // entries must not be able to escape the archive root.
+  const archiveName = safeFileName(playlistName);
+  archive.add(`${archiveName}.m3u`, encoder.encode(m3u));
+  archive.add(`${archiveName}.m3u8`, encoder.encode(m3u8));
 
   const tracks: ProcessedTrack[] = [];
   for (const item of measured) {

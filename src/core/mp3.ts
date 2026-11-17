@@ -52,8 +52,6 @@ const SAMPLE_RATES: Record<string, number[]> = {
   '2.5': [11025, 12000, 8000],
 };
 
-const TEXT_DECODER_ASCII = new TextDecoder('iso-8859-1');
-
 function ascii(bytes: Uint8Array, offset: number, length: number): string {
   let out = '';
   for (let i = 0; i < length; i += 1) {
@@ -72,7 +70,7 @@ function uint32BE(bytes: Uint8Array, offset: number): number {
 }
 
 /** Reads a synchsafe integer (7 bits per byte) as used by ID3v2 headers. */
-export function readSyncSafe(bytes: Uint8Array, offset: number): number {
+function readSyncSafe(bytes: Uint8Array, offset: number): number {
   return (
     ((bytes[offset] ?? 0) & 0x7f) * 0x200000 +
     ((bytes[offset + 1] ?? 0) & 0x7f) * 0x4000 +
@@ -90,22 +88,63 @@ export interface StrippedAudio {
   readonly hadId3v1: boolean;
 }
 
+/** Header size of an ID3v2.3 / ID3v2.4 tag. */
+const ID3V2_HEADER_SIZE = 10;
+/**
+ * Header size of an ID3v2.2 tag: the 6 byte header (identifier, version and
+ * flags) is followed by a plain 3 byte size, so the frames start at offset 9.
+ */
+const ID3V22_HEADER_SIZE = 9;
+const ID3_FOOTER_SIZE = 10;
+
+/**
+ * Size of the ID3v2 tag at the start of `data`, or `null` when the header is
+ * not plausible.
+ *
+ * A corrupt size field (for example `7f7f7f7f`) must never be trusted: the tag
+ * is only accepted when it fits into the file. Otherwise `stripTags` would
+ * remove the whole file and the result would contain no audio at all.
+ *
+ * @returns `0` when there is no ID3v2 tag, the tag size otherwise
+ */
+function id3v2TagSize(data: Uint8Array): number | null {
+  if (data.length < 3 || ascii(data, 0, 3) !== 'ID3') return 0;
+
+  const version = data[3] ?? 0;
+  if (version === 2) {
+    // ID3v2.2: 6 byte header, then a plain (not synchsafe) 3 byte size. The
+    // frame layout is irrelevant here, only the total size has to be known.
+    if (data.length < ID3V22_HEADER_SIZE) return null;
+    const size = ((data[6] ?? 0) << 16) | ((data[7] ?? 0) << 8) | (data[8] ?? 0);
+    const total = ID3V22_HEADER_SIZE + size;
+    return total <= data.length ? total : null;
+  }
+
+  if (version !== 3 && version !== 4) return null;
+
+  if (data.length < ID3V2_HEADER_SIZE) return null;
+  const flags = data[5] ?? 0;
+  const size = readSyncSafe(data, 6);
+  const footerSize = (flags & 0x10) !== 0 ? ID3_FOOTER_SIZE : 0;
+  const total = ID3V2_HEADER_SIZE + size + footerSize;
+  return total <= data.length ? total : null;
+}
+
 /**
  * Removes an ID3v2 tag from the beginning and an ID3v1 tag from the end of
  * the given bytes.
+ *
+ * An implausible ID3v2 header is treated as if the file had no tag at all -
+ * the audio must survive untouched.
  */
 export function stripTags(data: Uint8Array): StrippedAudio {
-  let audio = data;
-  let id3v2Size = 0;
-
-  if (audio.length >= 10 && ascii(audio, 0, 3) === 'ID3') {
-    const flags = audio[5] ?? 0;
-    const size = readSyncSafe(audio, 6);
-    const footerSize = (flags & 0x10) !== 0 ? 10 : 0;
-    const total = Math.min(audio.length, 10 + size + footerSize);
-    id3v2Size = total;
-    audio = audio.subarray(total);
+  const tagSize = id3v2TagSize(data);
+  if (tagSize === null) {
+    return { audio: data, id3v2Size: 0, hadId3v1: false };
   }
+
+  let audio = tagSize > 0 ? data.subarray(tagSize) : data;
+  const id3v2Size = tagSize;
 
   let hadId3v1 = false;
   if (audio.length >= 128 && ascii(audio, audio.length - 128, 3) === 'TAG') {
@@ -294,18 +333,4 @@ export function readMp3Info(data: Uint8Array): Mp3Info | null {
     vbr,
     frameCount,
   };
-}
-
-/** Convenience wrapper: duration in whole seconds, `null` when unknown. */
-export function readDurationSeconds(data: Uint8Array): number | null {
-  const info = readMp3Info(data);
-  if (!info || !Number.isFinite(info.durationSeconds) || info.durationSeconds <= 0) {
-    return null;
-  }
-  return info.durationSeconds;
-}
-
-/** Decodes a latin-1 (ISO-8859-1) byte string. */
-export function decodeLatin1(bytes: Uint8Array): string {
-  return TEXT_DECODER_ASCII.decode(bytes);
 }

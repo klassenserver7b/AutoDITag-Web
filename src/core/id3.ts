@@ -13,9 +13,6 @@ import type { CoverArt, TagPayload } from './types';
  *  - the comment language is `eng` instead of mutagen's placeholder `XXX`.
  */
 
-/** Supported ID3v2 versions. */
-export type Id3Version = 2.3 | 2.4;
-
 export interface Id3Frame {
   readonly id: string;
   readonly data: Uint8Array;
@@ -57,15 +54,6 @@ function encodeSyncSafe(value: number): Uint8Array {
   out[1] = (value >> 14) & 0x7f;
   out[2] = (value >> 7) & 0x7f;
   out[3] = value & 0x7f;
-  return out;
-}
-
-function encodeUint32(value: number): Uint8Array {
-  const out = new Uint8Array(4);
-  out[0] = (value >>> 24) & 0xff;
-  out[1] = (value >>> 16) & 0xff;
-  out[2] = (value >>> 8) & 0xff;
-  out[3] = value & 0xff;
   return out;
 }
 
@@ -120,7 +108,6 @@ function pictureFrameData(picture: CoverArt): Uint8Array {
 }
 
 export interface BuildId3Options {
-  readonly version?: Id3Version;
   /**
    * The tag that was already in the file. Its frames are kept (the Python
    * tool keeps them as well) unless the tool writes a frame with the same id.
@@ -129,13 +116,12 @@ export interface BuildId3Options {
 }
 
 /**
- * Builds an ID3v2 tag.
+ * Builds an ID3v2.4 tag.
  *
  * @param payload the tag values
- * @param options target version and the tag that was already in the file
+ * @param options the tag that was already in the file
  */
 export function buildId3v2(payload: TagPayload, options: BuildId3Options = {}): Uint8Array {
-  const version = options.version ?? 2.4;
   const frames: { id: string; data: Uint8Array }[] = [];
 
   // keep the frames of the original file
@@ -166,8 +152,7 @@ export function buildId3v2(payload: TagPayload, options: BuildId3Options = {}): 
   }
 
   const encodedFrames = frames.map((frame) => {
-    const size =
-      version === 2.4 ? encodeSyncSafe(frame.data.length) : encodeUint32(frame.data.length);
+    const size = encodeSyncSafe(frame.data.length);
     const id = new Uint8Array(4);
     for (let i = 0; i < 4; i += 1) id[i] = frame.id.charCodeAt(i);
     return concat([id, size, new Uint8Array([0x00, 0x00]), frame.data]);
@@ -176,7 +161,7 @@ export function buildId3v2(payload: TagPayload, options: BuildId3Options = {}): 
   const body = concat(encodedFrames);
   const header = concat([
     new Uint8Array([0x49, 0x44, 0x33]), // "ID3"
-    new Uint8Array([version === 2.4 ? 0x04 : 0x03, 0x00]),
+    new Uint8Array([0x04, 0x00]), // ID3v2.4
     new Uint8Array([0x00]), // flags
     encodeSyncSafe(body.length),
   ]);

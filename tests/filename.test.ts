@@ -2,30 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   isMp3,
   matchesTrackPrefix,
-  parseTrackFilename,
   safeFileName,
   targetFileName,
   trackNumberPrefixes,
 } from '../src/core/filename';
-
-describe('parseTrackFilename', () => {
-  it('parses a valid file name', () => {
-    expect(parseTrackFilename('01_Title; Artist -- Style.mp3')).toEqual({
-      trackNumber: '01',
-      title: 'Title',
-      artist: 'Artist',
-      dance: 'Style',
-    });
-  });
-
-  it('returns null for an invalid file name', () => {
-    expect(parseTrackFilename('invalid_format.mp3')).toBeNull();
-  });
-
-  it('returns null for a wrong extension', () => {
-    expect(parseTrackFilename('01_Title; Artist -- Style.txt')).toBeNull();
-  });
-});
 
 describe('isMp3', () => {
   it('accepts mp3 files', () => {

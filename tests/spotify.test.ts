@@ -96,6 +96,35 @@ describe('SpotifyClient', () => {
     expect(tokenCalls).toHaveLength(1);
   });
 
+  it('passes the job signal to every request', async () => {
+    const controller = new AbortController();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ access_token: 'token123', expires_in: 3600 }))
+      .mockResolvedValueOnce(jsonResponse({ tracks: { items: [] } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = new SpotifyClient('id', 'secret');
+    client.signal = controller.signal;
+    await client.searchTrack('T', 'A');
+
+    expect(fetchMock.mock.calls).toHaveLength(2);
+    for (const call of fetchMock.mock.calls as unknown as [string, RequestInit][]) {
+      expect(call[1].signal).toBe(controller.signal);
+    }
+  });
+
+  it('rethrows an abort instead of turning it into a network error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new DOMException('The operation was cancelled.', 'AbortError');
+      }),
+    );
+    const client = new SpotifyClient('id', 'secret');
+    await expect(client.getAccessToken()).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
   it('explains invalid credentials', async () => {
     vi.stubGlobal(
       'fetch',

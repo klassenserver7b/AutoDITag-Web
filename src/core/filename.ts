@@ -6,41 +6,9 @@
  * extract the tag values.
  */
 
-/** Parsed values of a track file name. */
-export interface ParsedTrackName {
-  readonly trackNumber: string;
-  readonly title: string;
-  readonly artist: string;
-  readonly dance: string;
-}
-
-/**
- * Same pattern as the Python tool: `(\d+)_(.*);\s(.*)\s--\s(.*)\.mp3`.
- * `re.match` only anchors at the start, so the pattern is intentionally not
- * anchored at the end.
- */
-const TRACK_FILENAME_PATTERN = /^(\d+)_(.*);\s(.*)\s--\s(.*)\.mp3/;
-
 /** `true` when the file name looks like an mp3 file. */
 export function isMp3(fileName: string): boolean {
   return fileName.toLowerCase().endsWith('.mp3');
-}
-
-/**
- * Parses a track file name.
- *
- * @returns the parsed values or `null` when the name does not follow the
- *          `TRACKNUM_TITLE; ARTIST -- DANCE` convention.
- */
-export function parseTrackFilename(fileName: string): ParsedTrackName | null {
-  const match = TRACK_FILENAME_PATTERN.exec(fileName);
-  if (!match) return null;
-  return {
-    trackNumber: match[1] as string,
-    title: match[2] as string,
-    artist: match[3] as string,
-    dance: match[4] as string,
-  };
 }
 
 /**

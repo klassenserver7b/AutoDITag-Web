@@ -13,7 +13,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e": "npm run build && node scripts/e2e.mjs",
-    "e2e:verify": "python3 scripts/verify_output.py"
+    "e2e:verify": "python3 scripts/verify_output.py",
+    "a11y": "npm run build && node scripts/a11y.mjs"
   },
   "dependencies": {
     "fflate": "^0.8.2"

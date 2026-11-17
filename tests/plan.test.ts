@@ -26,7 +26,6 @@ describe('buildPlan', () => {
     expect(plan.tracks.every((track) => track.status === 'ok')).toBe(true);
     expect(plan.tracks[0]?.source?.name).toBe('01-Song.mp3');
     expect(plan.tracks[0]?.targetName).toBe('01_Waltz; Artist -- Dance.mp3');
-    expect(plan.tracks[0]?.needsRename).toBe(true);
     expect(plan.unmatched).toHaveLength(0);
   });
 
@@ -66,25 +65,16 @@ describe('buildPlan', () => {
     expect(plan.tracks[0]?.status).toBe('ok');
   });
 
-  it('detects duplicated target names', () => {
-    // two descriptor lines that would end up with the same file name
-    const entries = [
-      { lineNumber: 1, raw: '01_Song; A -- B', trackNumber: '01', title: 'Song', artist: 'A', dance: 'B' },
-      { lineNumber: 2, raw: '01_Song; A -- B', trackNumber: '01', title: 'Song', artist: 'A', dance: 'B' },
-    ];
-    const plan = buildPlan(entries, [picked('01-Song.mp3'), picked('02-Song.mp3')]);
-    expect(plan.tracks[1]?.status).toBe('duplicate');
-    expect(plan.tracks[1]?.warnings.join(' ')).toContain('Target file already exists');
-  });
-
-  it('is idempotent for already renamed files', () => {
+  it('prefers the already renamed file on a re-run', () => {
     const { entries } = parseDescriptor(DESCRIPTOR);
     const plan = buildPlan(entries, [
+      picked('01-Old.mp3'),
       picked('01_Waltz; Artist -- Dance.mp3'),
       picked('02_Tango; Artist2 -- Dance2.mp3'),
       picked('03_Foxtrott; Artist3 -- Dance3.mp3'),
     ]);
-    expect(plan.tracks.every((track) => track.needsRename === false)).toBe(true);
+    expect(plan.tracks[0]?.source?.name).toBe('01_Waltz; Artist -- Dance.mp3');
+    expect(plan.tracks.every((track) => track.status === 'ok')).toBe(true);
   });
 
   it('reports a matching file that is not an mp3 file', () => {
