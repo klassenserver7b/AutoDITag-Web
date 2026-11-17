@@ -14,6 +14,9 @@ The music files never leave your machine.
 
 Static files, no backend — perfect for GitHub Pages.
 
+**Live:** <https://klassenserver7b.github.io/AutoDITag-Web/> ·
+**Repository:** <https://github.com/klassenserver7b/AutoDITag-Web>
+
 ## Usage
 
 1. **Pick the folder** with your mp3 files (or drag & drop it onto the page).
