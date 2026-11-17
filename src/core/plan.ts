@@ -19,6 +19,8 @@ export function buildPlan(
   const candidates = [...files].sort((a, b) =>
     a.name.localeCompare(b.name, undefined, { numeric: true }),
   );
+  // file names that are already taken by an earlier entry
+  const takenTargets = new Map<string, DescriptorEntry>();
 
   for (const entry of entries) {
     const targetName = safeFileName(targetFileName(entry.raw));
@@ -59,6 +61,17 @@ export function buildPlan(
           entry.lineNumber,
         ).padStart(2, '0')}_*' or '${String(entry.lineNumber).padStart(2, '0')}-*'`,
       );
+    }
+
+    const previous = takenTargets.get(targetName);
+    if (previous) {
+      // two entries want the same file name - the second one cannot be written
+      status = 'duplicate';
+      trackWarnings.push(
+        `Target file already exists, skipping: ${targetName} (already used by line ${previous.lineNumber})`,
+      );
+    } else {
+      takenTargets.set(targetName, entry);
     }
 
     tracks.push({

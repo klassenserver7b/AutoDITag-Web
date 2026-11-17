@@ -149,7 +149,7 @@ export async function processPlaylist(options: ProcessOptions): Promise<Processi
   const archive = createZipStream();
   // The album tag keeps the raw name (like the Python tool), but the archive
   // entries must not be able to escape the archive root.
-  const archiveName = safeFileName(playlistName);
+  const archiveName = safeFileName(playlistName) || 'playlist';
   archive.add(`${archiveName}.m3u`, encoder.encode(m3u));
   archive.add(`${archiveName}.m3u8`, encoder.encode(m3u8));
 
@@ -176,9 +176,19 @@ export async function processPlaylist(options: ProcessOptions): Promise<Processi
     };
 
     const bytes = new Uint8Array(await item.track.source!.file.arrayBuffer());
+    const stripped = stripTags(bytes);
+
+    if (!stripped.tagReadable) {
+      // the file carries a tag that cannot be located - the python tool skips
+      // such a file as well, writing a broken result would be worse
+      warnings.push(
+        `Track ${String(entry.lineNumber).padStart(2, '0')} (${entry.raw}) was skipped: the ID3 tag of '${item.track.source!.name}' is broken.`,
+      );
+      continue;
+    }
+
     // keep the frames the file already had (like the python tool does)
     const existing = readId3v2(bytes);
-    const stripped = stripTags(bytes);
     const tag = buildId3v2(payload, { existing });
     const data = concat([tag, stripped.audio]);
 
@@ -197,8 +207,10 @@ export async function processPlaylist(options: ProcessOptions): Promise<Processi
   const blob = await archive.finish();
 
   // tracks without a source file
+  let skipped = 0;
   for (const track of plan.tracks) {
     if (track.source === null) {
+      skipped += 1;
       warnings.push(
         `Track ${String(track.entry.lineNumber).padStart(2, '0')} (${track.entry.raw}) was skipped: no matching file found.`,
       );
@@ -207,5 +219,5 @@ export async function processPlaylist(options: ProcessOptions): Promise<Processi
 
   onProgress?.(steps, steps, 'Done');
 
-  return { playlistName, tracks, m3u, m3u8, warnings, archive: blob };
+  return { playlistName, tracks, skipped, m3u, m3u8, warnings, archive: blob };
 }

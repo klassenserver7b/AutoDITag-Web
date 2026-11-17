@@ -435,19 +435,17 @@ function renderResult(result: ProcessingResult): void {
 
   const total = result.tracks.reduce((sum, track) => sum + track.durationSeconds, 0);
   const withCover = result.tracks.filter((track) => track.hasCover).length;
-  // the run level warnings already mention every entry that had no file
-  const skipped = result.warnings.filter((warning) =>
-    warning.includes('no matching file found'),
-  ).length;
+  // the archive uses the sanitised name, the panel has to show the same one
+  const archiveName = safeFileName(result.playlistName) || 'playlist';
 
   const list = document.createElement('dl');
   list.className = 'result-list';
   const items: [string, string][] = [
     ['Tracks', String(result.tracks.length)],
-    ['Skipped (no matching file)', String(skipped)],
+    ['Skipped (no matching file)', String(result.skipped)],
     ['Total length', formatDuration(total)],
     ['Cover art', result.tracks.length > 0 ? `${withCover} of ${result.tracks.length}` : '—'],
-    ['Playlist files', `${result.playlistName}.m3u and ${result.playlistName}.m3u8`],
+    ['Playlist files', `${archiveName}.m3u and ${archiveName}.m3u8`],
   ];
   for (const [label, value] of items) {
     const term = document.createElement('dt');

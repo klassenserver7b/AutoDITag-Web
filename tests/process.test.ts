@@ -19,6 +19,18 @@ async function archiveEntries(blob: Blob): Promise<Record<string, Uint8Array>> {
   return unzipSync(new Uint8Array(buffer));
 }
 
+function concatBytes(a: Uint8Array, b: Uint8Array): Uint8Array {
+  const out = new Uint8Array(a.length + b.length);
+  out.set(a, 0);
+  out.set(b, a.length);
+  return out;
+}
+
+/** An ID3v2 header that promises a tag of the given (syncsafe) size. */
+function id3v24Header(size: number[]): Uint8Array {
+  return new Uint8Array([0x49, 0x44, 0x33, 0x04, 0x00, 0x00, ...size]);
+}
+
 describe('processPlaylist', () => {
   it('renames, tags and playlists the tracks', async () => {
     const { entries } = parseDescriptor(
@@ -144,6 +156,27 @@ describe('processPlaylist', () => {
     const tagged = archive['Tanzmusik/01_Waltz; Artist -- Dance.mp3'] as Uint8Array;
     expect(readId3v2(tagged)?.text.TALB).toBe('../../evil');
     expect(readId3v2(tagged)?.text.TPE2).toBe('../../evil');
+  });
+
+  it('skips a file whose id3 tag is broken instead of cutting off the audio', async () => {
+    const { entries } = parseDescriptor('01_Waltz; Artist -- Dance');
+    const audio = makeMp3({ frames: 50 });
+    // a tag that promises more than the file contains
+    const broken = concatBytes(id3v24Header([0x00, 0x3f, 0x7f, 0x7f]), audio);
+
+    const result = await processPlaylist({
+      playlistName: 'Schulball',
+      entries,
+      files: [picked('01-Song.mp3', broken)],
+      musicFolderName: 'Tanzmusik',
+      spotify: null,
+    });
+
+    // the file is reported and left out, nothing broken is written
+    expect(result.tracks).toHaveLength(0);
+    expect(result.warnings.join(' ')).toContain('the ID3 tag of \'01-Song.mp3\' is broken');
+    const archive = await archiveEntries(result.archive);
+    expect(Object.keys(archive).filter((name) => name.endsWith('.mp3'))).toHaveLength(0);
   });
 
   it('can be cancelled', async () => {

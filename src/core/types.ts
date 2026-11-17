@@ -50,7 +50,7 @@ export interface PickedFile {
 }
 
 /** Result of matching one descriptor entry against the selected files. */
-export type TrackStatus = 'ok' | 'missing' | 'invalid-source';
+export type TrackStatus = 'ok' | 'missing' | 'duplicate' | 'invalid-source';
 
 export interface TrackPlan {
   readonly entry: DescriptorEntry;
@@ -125,6 +125,8 @@ export interface ProcessedTrack {
 export interface ProcessingResult {
   readonly playlistName: string;
   readonly tracks: readonly ProcessedTrack[];
+  /** Number of descriptor entries without a matching file. */
+  readonly skipped: number;
   /** M3U playlist content. */
   readonly m3u: string;
   /** M3U8 playlist content (identical copy, like the original tool). */

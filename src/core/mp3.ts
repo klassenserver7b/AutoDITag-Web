@@ -86,15 +86,16 @@ export interface StrippedAudio {
   readonly id3v2Size: number;
   /** `true` when an ID3v1 tag was removed. */
   readonly hadId3v1: boolean;
+  /**
+   * `false` when the file carries an ID3v2 tag that cannot be located. The
+   * audio is then left untouched - like the Python tool, which skips such a
+   * file instead of writing a broken result.
+   */
+  readonly tagReadable: boolean;
 }
 
-/** Header size of an ID3v2.3 / ID3v2.4 tag. */
+/** Header size of an ID3v2 tag (all versions). */
 const ID3V2_HEADER_SIZE = 10;
-/**
- * Header size of an ID3v2.2 tag: the 6 byte header (identifier, version and
- * flags) is followed by a plain 3 byte size, so the frames start at offset 9.
- */
-const ID3V22_HEADER_SIZE = 9;
 const ID3_FOOTER_SIZE = 10;
 
 /**
@@ -111,42 +112,21 @@ function id3v2TagSize(data: Uint8Array): number | null {
   if (data.length < 3 || ascii(data, 0, 3) !== 'ID3') return 0;
 
   const version = data[3] ?? 0;
-  if (version === 2) {
-    // ID3v2.2: the specification describes a 6 byte header followed by a plain
-    // (not synchsafe) 3 byte size, so the frames start at offset 9. mutagen
-    // reads the size of such a tag as a 4 byte synchsafe value instead, so
-    // both readings are tried and the one that leaves usable audio wins.
-    const candidates: number[] = [];
-    if (data.length >= ID3V22_HEADER_SIZE) {
-      const plain = ((data[6] ?? 0) << 16) | ((data[7] ?? 0) << 8) | (data[8] ?? 0);
-      const total = ID3V22_HEADER_SIZE + plain;
-      if (total <= data.length) candidates.push(total);
-    }
-    if (data.length >= ID3V2_HEADER_SIZE) {
-      const total = ID3V2_HEADER_SIZE + readSyncSafe(data, 6);
-      if (total <= data.length) candidates.push(total);
-    }
-    if (candidates.length === 0) return null;
-    for (const candidate of candidates) {
-      if (hasFrameSync(data, candidate)) return candidate;
-    }
-    return candidates[0] ?? null;
-  }
-
-  if (version !== 3 && version !== 4) return null;
-
+  if (version !== 2 && version !== 3 && version !== 4) return null;
   if (data.length < ID3V2_HEADER_SIZE) return null;
+
+  // All versions use a ten byte header with a synchsafe size - that is how
+  // mutagen and exiftool read an ID3v2.2 tag as well (the size of such a tag
+  // is a 21 bit value, the fourth byte of the field is zero).
   const flags = data[5] ?? 0;
   const size = readSyncSafe(data, 6);
-  const footerSize = (flags & 0x10) !== 0 ? ID3_FOOTER_SIZE : 0;
+  const footerSize = version >= 3 && (flags & 0x10) !== 0 ? ID3_FOOTER_SIZE : 0;
   const total = ID3V2_HEADER_SIZE + size + footerSize;
   return total <= data.length ? total : null;
 }
 
 /**
  * `true` when an MPEG audio frame starts at the given offset.
- *
- * Used to find out which of two possible tag sizes is the correct one.
  */
 function hasFrameSync(data: Uint8Array, offset: number): boolean {
   if (offset + 1 >= data.length) return false;
@@ -158,16 +138,31 @@ function hasFrameSync(data: Uint8Array, offset: number): boolean {
  * the given bytes.
  *
  * An implausible ID3v2 header is treated as if the file had no tag at all -
- * the audio must survive untouched.
+ * the audio must survive untouched. The tag is only removed when the size
+ * really points to the audio data; a size that points somewhere else would
+ * cut off the beginning of the music.
  */
 export function stripTags(data: Uint8Array): StrippedAudio {
   const tagSize = id3v2TagSize(data);
-  if (tagSize === null) {
-    return { audio: data, id3v2Size: 0, hadId3v1: false };
-  }
 
-  let audio = tagSize > 0 ? data.subarray(tagSize) : data;
-  const id3v2Size = tagSize;
+  let audio = data;
+  let id3v2Size = 0;
+  let tagReadable = true;
+
+  if (tagSize === null) {
+    // the file starts with "ID3", but the tag cannot be located
+    tagReadable = false;
+  } else if (tagSize > 0) {
+    const candidate = data.subarray(tagSize);
+    if (candidate.length === 0 || hasFrameSync(candidate, 0)) {
+      audio = candidate;
+      id3v2Size = tagSize;
+    } else {
+      // the size does not point to the audio - the tag is broken, the file is
+      // left alone and reported as unreadable
+      tagReadable = false;
+    }
+  }
 
   let hadId3v1 = false;
   if (audio.length >= 128 && ascii(audio, audio.length - 128, 3) === 'TAG') {
@@ -175,7 +170,7 @@ export function stripTags(data: Uint8Array): StrippedAudio {
     hadId3v1 = true;
   }
 
-  return { audio, id3v2Size, hadId3v1 };
+  return { audio, id3v2Size, hadId3v1, tagReadable };
 }
 
 function parseFrameHeader(data: Uint8Array, offset: number): FrameHeader | null {

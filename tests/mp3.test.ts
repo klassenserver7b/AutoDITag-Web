@@ -18,28 +18,34 @@ function id3v24Header(size: readonly number[], flags = 0): Uint8Array {
   return new Uint8Array([0x49, 0x44, 0x33, 0x04, 0x00, flags, ...size]);
 }
 
-/** An ID3v2.2 tag: 6 byte header plus a plain 3 byte size. */
+/**
+ * An ID3v2.2 tag.
+ *
+ * mutagen and exiftool read every version with a ten byte header and a
+ * synchsafe size - for ID3v2.2 that is a 21 bit value whose fourth byte is
+ * zero. The frames themselves use three character ids with a three byte size.
+ */
 function id3v22Tag(body: Uint8Array): Uint8Array {
   const size = body.length;
   return concatBytes([
     new Uint8Array([
       0x49, 0x44, 0x33, 0x02, 0x00, 0x00,
-      (size >> 16) & 0xff, (size >> 8) & 0xff, size & 0xff,
+      (size >> 21) & 0x7f, (size >> 14) & 0x7f, (size >> 7) & 0x7f, size & 0x7f,
     ]),
     body,
   ]);
 }
 
 /**
- * An ID3v2.2 tag whose size was written the way mutagen reads it: as a four
- * byte synchsafe value instead of a plain three byte one.
+ * An ID3v2.2 tag with a size that neither mutagen nor exiftool understands:
+ * a plain three byte number instead of a synchsafe one.
  */
-function id3v22TagMutagenStyle(body: Uint8Array): Uint8Array {
+function id3v22TagBrokenSize(body: Uint8Array): Uint8Array {
   const size = body.length;
   return concatBytes([
     new Uint8Array([
       0x49, 0x44, 0x33, 0x02, 0x00, 0x00,
-      (size >> 21) & 0x7f, (size >> 14) & 0x7f, (size >> 7) & 0x7f, size & 0x7f,
+      (size >> 16) & 0xff, (size >> 8) & 0xff, size & 0xff,
     ]),
     body,
   ]);
@@ -132,32 +138,34 @@ describe('stripTags', () => {
 
     const result = stripTags(tagged);
     expect(result.id3v2Size).toBe(0);
+    // the tag cannot be located, the file is reported as unreadable
+    expect(result.tagReadable).toBe(false);
     expect(result.audio.length).toBe(tagged.length);
     expect([...result.audio.subarray(10)]).toEqual([...audio]);
     expect(readMp3Info(tagged)?.durationSeconds).toBeGreaterThan(0);
   });
 
-  it('strips an id3v2.2 tag (6 byte header, plain 3 byte size)', () => {
+  it('strips an id3v2.2 tag', () => {
     const audio = makeMp3({ frames: 10 });
     // three character frame ids with a 3 byte size, like ID3v2.2 uses them
     const body = new Uint8Array([0x54, 0x54, 0x32, 0x00, 0x00, 0x04, 1, 2, 3, 4]);
     const tagged = concatBytes([id3v22Tag(body), audio]);
 
     const result = stripTags(tagged);
-    expect(result.id3v2Size).toBe(9 + body.length);
+    expect(result.id3v2Size).toBe(10 + body.length);
     expect([...result.audio]).toEqual([...audio]);
     expect(readMp3Info(tagged)?.durationSeconds).toBeGreaterThan(0);
   });
 
-  it('strips an id3v2.2 tag whose size was written the mutagen way', () => {
+  it('keeps the audio of an id3v2.2 tag with an unreadable size', () => {
     const audio = makeMp3({ frames: 10 });
     const body = new Uint8Array([0x54, 0x54, 0x32, 0x00, 0x00, 0x04, 1, 2, 3, 4]);
-    const tagged = concatBytes([id3v22TagMutagenStyle(body), audio]);
+    const tagged = concatBytes([id3v22TagBrokenSize(body), audio]);
 
     const result = stripTags(tagged);
-    // the audio has to survive, no matter how the size was written
-    expect(result.audio.length).toBe(audio.length);
-    expect([...result.audio]).toEqual([...audio]);
+    // the tag cannot be located, but the audio must not be lost
+    expect(result.tagReadable).toBe(false);
+    expect(result.audio.length).toBe(tagged.length);
     expect(readMp3Info(tagged)?.durationSeconds).toBeGreaterThan(0);
   });
 
@@ -165,6 +173,7 @@ describe('stripTags', () => {
     const audio = makeMp3({ frames: 10 });
     const result = stripTags(audio);
     expect(result.id3v2Size).toBe(0);
+    expect(result.tagReadable).toBe(true);
     expect([...result.audio]).toEqual([...audio]);
     expect(readMp3Info(audio)?.durationSeconds).toBeGreaterThan(0);
   });

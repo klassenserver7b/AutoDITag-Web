@@ -25,5 +25,32 @@
     "channels": 2,
     "mpegVersion": 1,
     "layer": 3
+  },
+  {
+    "file": "fixture-04-mpeg2-mono.mp3",
+    "duration": 1.5673,
+    "bitrateBps": 63996,
+    "sampleRate": 22050,
+    "channels": 1,
+    "mpegVersion": 2,
+    "layer": 3
+  },
+  {
+    "file": "fixture-05-mpeg25-mono.mp3",
+    "duration": 1.3061,
+    "bitrateBps": 48002,
+    "sampleRate": 11025,
+    "channels": 1,
+    "mpegVersion": 2.5,
+    "layer": 3
+  },
+  {
+    "file": "fixture-06-48khz-stereo.mp3",
+    "duration": 1.128,
+    "bitrateBps": 192000,
+    "sampleRate": 48000,
+    "channels": 2,
+    "mpegVersion": 1,
+    "layer": 3
   }
 ]
