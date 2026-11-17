@@ -119,7 +119,10 @@ The port keeps the behaviour of `auto_di_tag.py` but fixes a few rough edges:
 | Spotify credentials | config file / env / CLI | entered in the app, optionally remembered in local storage |
 
 The ID3 layout itself is byte compatible with the Python tool: ID3v2.4, UTF-16 text frames,
-`TIT2`, `TPE1`, `TPE2`, `TALB`, `TCON`, `TCOM`, `TRCK`, `COMM` and `APIC`.
+`TIT2`, `TPE1`, `TPE2`, `TALB`, `TCON`, `TCOM`, `TRCK`, `COMM` and `APIC`. The frame data is
+byte for byte the same as the one mutagen writes — only the order of the frames, the language
+of the comment (`eng` instead of `XXX`) and the padding differ (mutagen pads the tag with 2 kB
+of zeros, the web app writes it without padding).
 
 ## License
 
