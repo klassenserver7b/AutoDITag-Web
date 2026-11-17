@@ -1,0 +1,63 @@
+import { describe, expect, it } from 'vitest';
+import {
+  isMp3,
+  matchesTrackPrefix,
+  parseTrackFilename,
+  targetFileName,
+  trackNumberPrefixes,
+} from '../src/core/filename';
+
+describe('parseTrackFilename', () => {
+  it('parses a valid file name', () => {
+    expect(parseTrackFilename('01_Title; Artist -- Style.mp3')).toEqual({
+      trackNumber: '01',
+      title: 'Title',
+      artist: 'Artist',
+      dance: 'Style',
+    });
+  });
+
+  it('returns null for an invalid file name', () => {
+    expect(parseTrackFilename('invalid_format.mp3')).toBeNull();
+  });
+
+  it('returns null for a wrong extension', () => {
+    expect(parseTrackFilename('01_Title; Artist -- Style.txt')).toBeNull();
+  });
+});
+
+describe('isMp3', () => {
+  it('accepts mp3 files', () => {
+    expect(isMp3('song.mp3')).toBe(true);
+    expect(isMp3('SONG.MP3')).toBe(true);
+    expect(isMp3('song.flac')).toBe(false);
+  });
+});
+
+describe('matchesTrackPrefix', () => {
+  it('matches zero padded numbers with both separators', () => {
+    expect(matchesTrackPrefix('01-Song.mp3', 1)).toBe(true);
+    expect(matchesTrackPrefix('01_Song.mp3', 1)).toBe(true);
+  });
+
+  it('matches unpadded numbers (fixes playlists with less than ten tracks)', () => {
+    expect(matchesTrackPrefix('1-Song.mp3', 1)).toBe(true);
+    expect(matchesTrackPrefix('1_Song.mp3', 1)).toBe(true);
+  });
+
+  it('does not match a different track', () => {
+    expect(matchesTrackPrefix('02-Song.mp3', 1)).toBe(false);
+    expect(matchesTrackPrefix('10-Song.mp3', 1)).toBe(false);
+  });
+
+  it('lists the accepted prefixes', () => {
+    expect(trackNumberPrefixes(1)).toEqual(['1', '01', '001']);
+    expect(trackNumberPrefixes(12)).toEqual(['12', '012']);
+  });
+});
+
+describe('targetFileName', () => {
+  it('appends the mp3 extension to the descriptor line', () => {
+    expect(targetFileName('01_Waltz; Artist -- Dance')).toBe('01_Waltz; Artist -- Dance.mp3');
+  });
+});
