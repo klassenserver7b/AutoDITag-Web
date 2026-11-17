@@ -336,13 +336,71 @@ async function main() {
   } catch (error) {
     fail(`exception: ${error.message}`);
     if (consoleErrors.length > 0) log(`console errors:\n${consoleErrors.join('\n')}`);
-  } finally {
-    await browser.close();
-    server.close();
   }
+
+  await checkLayout(browser, url);
+
+  await browser.close();
+  server.close();
 
   if (process.exitCode) log('E2E FAILED');
   else log('E2E PASSED');
+}
+
+/** Checks the layout on a phone screen and in dark mode. */
+async function checkLayout(browser, url) {
+  const mobile = await browser.newContext({ viewport: { width: 360, height: 740 } });
+  const page = await mobile.newPage();
+  await page.goto(url, { waitUntil: 'networkidle' });
+
+  const overflow = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }));
+  if (overflow.scrollWidth > overflow.clientWidth + 1) {
+    fail(`the page overflows horizontally on a 360px screen: ${JSON.stringify(overflow)}`);
+  } else {
+    log(`layout: no horizontal overflow on 360px (${overflow.scrollWidth}px)`);
+  }
+
+  const hidden = await page.evaluate(() => {
+    const ids = [
+      'music-input',
+      'descriptor-text',
+      'playlist-name',
+      'run-button',
+      'download-button',
+      'status',
+      'plan-table',
+    ];
+    return ids.filter((id) => {
+      const element = document.getElementById(id);
+      if (!element) return true;
+      const style = window.getComputedStyle(element);
+      return style.display === 'none' || style.visibility === 'hidden';
+    });
+  });
+  if (hidden.length > 0) {
+    fail(`these elements are not visible on a phone screen: ${hidden.join(', ')}`);
+  } else {
+    log('layout: all important elements are visible on a phone screen');
+  }
+  await mobile.close();
+
+  const dark = await browser.newContext({ colorScheme: 'dark' });
+  const darkPage = await dark.newPage();
+  await darkPage.goto(url, { waitUntil: 'networkidle' });
+  const colors = await darkPage.evaluate(() => {
+    const style = window.getComputedStyle(document.body);
+    return { background: style.backgroundColor, color: style.color };
+  });
+  const [red, green, blue] = (colors.background.match(/\d+/g) ?? ['255', '255', '255']).map(Number);
+  if (red + green + blue > 200) {
+    fail(`the dark mode does not use a dark background: ${colors.background}`);
+  } else {
+    log(`dark mode: background ${colors.background}, text ${colors.color}`);
+  }
+  await dark.close();
 }
 
 await main();
