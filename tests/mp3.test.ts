@@ -30,6 +30,21 @@ function id3v22Tag(body: Uint8Array): Uint8Array {
   ]);
 }
 
+/**
+ * An ID3v2.2 tag whose size was written the way mutagen reads it: as a four
+ * byte synchsafe value instead of a plain three byte one.
+ */
+function id3v22TagMutagenStyle(body: Uint8Array): Uint8Array {
+  const size = body.length;
+  return concatBytes([
+    new Uint8Array([
+      0x49, 0x44, 0x33, 0x02, 0x00, 0x00,
+      (size >> 21) & 0x7f, (size >> 14) & 0x7f, (size >> 7) & 0x7f, size & 0x7f,
+    ]),
+    body,
+  ]);
+}
+
 describe('readMp3Info', () => {
   it('reads the duration of a constant bitrate file', () => {
     const data = makeMp3({ frames: 100 });
@@ -130,6 +145,18 @@ describe('stripTags', () => {
 
     const result = stripTags(tagged);
     expect(result.id3v2Size).toBe(9 + body.length);
+    expect([...result.audio]).toEqual([...audio]);
+    expect(readMp3Info(tagged)?.durationSeconds).toBeGreaterThan(0);
+  });
+
+  it('strips an id3v2.2 tag whose size was written the mutagen way', () => {
+    const audio = makeMp3({ frames: 10 });
+    const body = new Uint8Array([0x54, 0x54, 0x32, 0x00, 0x00, 0x04, 1, 2, 3, 4]);
+    const tagged = concatBytes([id3v22TagMutagenStyle(body), audio]);
+
+    const result = stripTags(tagged);
+    // the audio has to survive, no matter how the size was written
+    expect(result.audio.length).toBe(audio.length);
     expect([...result.audio]).toEqual([...audio]);
     expect(readMp3Info(tagged)?.durationSeconds).toBeGreaterThan(0);
   });

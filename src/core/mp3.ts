@@ -112,12 +112,25 @@ function id3v2TagSize(data: Uint8Array): number | null {
 
   const version = data[3] ?? 0;
   if (version === 2) {
-    // ID3v2.2: 6 byte header, then a plain (not synchsafe) 3 byte size. The
-    // frame layout is irrelevant here, only the total size has to be known.
-    if (data.length < ID3V22_HEADER_SIZE) return null;
-    const size = ((data[6] ?? 0) << 16) | ((data[7] ?? 0) << 8) | (data[8] ?? 0);
-    const total = ID3V22_HEADER_SIZE + size;
-    return total <= data.length ? total : null;
+    // ID3v2.2: the specification describes a 6 byte header followed by a plain
+    // (not synchsafe) 3 byte size, so the frames start at offset 9. mutagen
+    // reads the size of such a tag as a 4 byte synchsafe value instead, so
+    // both readings are tried and the one that leaves usable audio wins.
+    const candidates: number[] = [];
+    if (data.length >= ID3V22_HEADER_SIZE) {
+      const plain = ((data[6] ?? 0) << 16) | ((data[7] ?? 0) << 8) | (data[8] ?? 0);
+      const total = ID3V22_HEADER_SIZE + plain;
+      if (total <= data.length) candidates.push(total);
+    }
+    if (data.length >= ID3V2_HEADER_SIZE) {
+      const total = ID3V2_HEADER_SIZE + readSyncSafe(data, 6);
+      if (total <= data.length) candidates.push(total);
+    }
+    if (candidates.length === 0) return null;
+    for (const candidate of candidates) {
+      if (hasFrameSync(data, candidate)) return candidate;
+    }
+    return candidates[0] ?? null;
   }
 
   if (version !== 3 && version !== 4) return null;
@@ -128,6 +141,16 @@ function id3v2TagSize(data: Uint8Array): number | null {
   const footerSize = (flags & 0x10) !== 0 ? ID3_FOOTER_SIZE : 0;
   const total = ID3V2_HEADER_SIZE + size + footerSize;
   return total <= data.length ? total : null;
+}
+
+/**
+ * `true` when an MPEG audio frame starts at the given offset.
+ *
+ * Used to find out which of two possible tag sizes is the correct one.
+ */
+function hasFrameSync(data: Uint8Array, offset: number): boolean {
+  if (offset + 1 >= data.length) return false;
+  return data[offset] === 0xff && ((data[offset + 1] ?? 0) & 0xe0) === 0xe0;
 }
 
 /**
